@@ -28,6 +28,9 @@
 
     # 正式分类（复制到输出目录，不改动原文件）
     python src/organizer.py -i data/album -o output/album_sorted --strategy priority
+
+    # 追求速度时（个人相册上会有更多"未识别"）
+    python src/organizer.py -i data/album -o out --imgsz 320 --conf 0.35
 """
 import argparse
 import shutil
@@ -92,8 +95,11 @@ def find_images(input_dir: Path) -> list[Path]:
 def detect_all(images: list[Path], weights: str, conf: float, imgsz: int, batch: int) -> list[dict]:
     """分批跑检测，只记录"检测到了哪些物体"（分类不在这里决定）。
 
-    imgsz 用 320 而不是 640：本工具只需要判断"有没有这个物体"，
-    不需要精确的框位置，尺寸调小可以显著提速。
+    关于 imgsz 的取舍（同一批 52 张个人相册照片的实测对照）：
+        imgsz=320, conf=0.35  →  未识别率 40.4%
+        imgsz=640, conf=0.25  →  未识别率 26.9%
+    小尺寸在"物体大而清晰"的数据集（如 COCO）上够用且快几倍，
+    但个人相册里的物体往往更小更杂，所以默认取 640 优先保证效果。
     """
     model = YOLO(weights)
     records: list[dict] = []
@@ -173,9 +179,9 @@ def main() -> None:
     parser.add_argument("-i", "--input", required=True, help="输入目录（放照片的文件夹）")
     parser.add_argument("-o", "--output", default="output/album_sorted", help="输出目录")
     parser.add_argument("--weights", default="weights/best.pt", help="YOLO 权重文件")
-    parser.add_argument("--conf", type=float, default=0.35, help="置信度阈值")
-    parser.add_argument("--imgsz", type=int, default=320,
-                        help="推理尺寸，默认 320（分类只需要判断'有没有'，不必用 640）")
+    parser.add_argument("--conf", type=float, default=0.25, help="置信度阈值，默认 0.25")
+    parser.add_argument("--imgsz", type=int, default=640,
+                        help="推理尺寸，默认 640。调到 320 会快几倍，但个人相册上漏检更多（见 README 实测对照）")
     parser.add_argument("--batch", type=int, default=8, help="批处理大小")
     parser.add_argument("--strategy", choices=["priority", "count"], default="priority",
                         help="多物体时的归类策略：priority 按优先级 / count 按数量最多")
