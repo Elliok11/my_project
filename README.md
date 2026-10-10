@@ -1,7 +1,7 @@
 # 本地大模型命令行助手
 
 > AI 协会创智部二面 · 实战题
-> 作者：[你的名字]（GitHub: [你的用户名]）
+> 作者：[填你的名字]（GitHub: [Elliok11](https://github.com/Elliok11)）
 
 一个跑在**自己电脑上**的命令行 AI 助手：不联网、不调用云端 API，直接和本地部署的大模型对话；
 再加上 YOLO 目标检测，它还能"看图说话"。
@@ -107,7 +107,7 @@ python src/ai.py "你好" --model qwen2.5:0.5b
 
 ```python
 !pip install ultralytics -q
-!git clone <本仓库地址> && cd <仓库名>
+!git clone https://github.com/Elliok11/my_project.git && cd my_project
 !python train/train_yolo.py --data coco128.yaml --epochs 50 --batch 16 --device 0
 ```
 
@@ -175,6 +175,20 @@ setx OLLAMA_VULKAN 0
 `ollama server not ready, continuing anyway`，11434 端口始终无监听。
 
 **当前处理**：改用命令行方式常驻服务 `ollama serve`。此问题不影响本项目的 CLI 使用。
+
+### 问题 3：`git push` 报 `Failed to connect to github.com:443 over proxy 127.0.0.1`
+
+**现象**：`git push` 立刻失败（约 2 毫秒就被拒绝），提示走了本地代理。
+
+**原因**：git 全局配置里残留了代理设置 `http.proxy = http://127.0.0.1:26501`，
+而设置它的代理软件当时并未运行。实测本机**绕过代理直连 GitHub 是正常的**（HTTP 200）。
+
+**解决**：
+
+```cmd
+git config --global --unset http.proxy
+git config --global --unset https.proxy
+```
 
 ---
 
