@@ -18,7 +18,7 @@
 | ✅ | 本地大模型部署（Ollama + Qwen2.5-1.5B，纯 CPU 运行） |
 | ✅ | CLI 应用：通过 HTTP API 调用本地模型，支持流式输出 |
 | ✅ | YOLO 目标检测：本地 CPU 推理跑通，并接入 CLI（`-i 图片` 看图说话） |
-| ⏳ | 在魔搭 ModelScope 免费 GPU 上完成一次自己的训练（题目硬性要求） |
+| ⏳ | 在魔搭 ModelScope 免费 GPU 上完成一次训练（脚本已备好 `train/train_yolo.py`，待执行） |
 | ⏳ | 创意作品整合（计划中） |
 
 ---
@@ -88,6 +88,47 @@ python src/ai.py "你好" --no-stream
 :: 换一个小模型（更快，但更笨）
 python src/ai.py "你好" --model qwen2.5:0.5b
 ```
+
+---
+
+## 训练（在魔搭免费 GPU 上）
+
+**为什么不在这台笔记本上训练**：本机是双核 CPU、没有可用于训练的显卡（见"已知问题"）。
+训 50 轮 coco128 在本机需要数小时，而在免费 GPU 上约 5 分钟。
+
+**为什么选魔搭**：本机**无法访问 Google Colab**（实测超时），网上大多数 YOLO 教程需要跳过。
+魔搭（ModelScope）提供免费 GPU 额度，环境基于 PAI-DSW，预装 CUDA 与 PyTorch。
+
+**步骤**：
+
+1. 在 [modelscope.cn](https://www.modelscope.cn/) 注册，进入「我的 Notebook」
+2. 新建 Notebook，选择**带 GPU 的环境**，启动
+3. 在 JupyterLab 的代码格里执行：
+
+```python
+!pip install ultralytics -q
+!git clone <本仓库地址> && cd <仓库名>
+!python train/train_yolo.py --data coco128.yaml --epochs 50 --batch 16 --device 0
+```
+
+4. 训练完成后下载 `runs/train/weights/best.pt`，放进本机 `weights/` 目录
+5. 用自己训练的权重推理：
+
+```cmd
+python src/ai.py -i data/samples/bus.jpg "这张图里有什么" --weights weights/best.pt
+```
+
+**训练参数的选择理由**（题目要求"参数自己决定"，这里给出依据）：
+
+| 参数 | 取值 | 理由 |
+|---|---|---|
+| 基础模型 | `yolov8n` | 最小最快的版本，本机 CPU 推理能跑得动（约 3.3 秒/张） |
+| `epochs` | 50 | 小数据集下足够收敛；过少欠拟合，过多过拟合 |
+| `imgsz` | 640 | YOLO 的标准输入尺寸，精度与速度的通用平衡点 |
+| `batch` | 16 | 24G 显存下宽裕；若改在本机 CPU 训练则必须调小 |
+| `device` | 0 | 使用第 0 号 GPU；本机 CPU 训练填 `cpu` |
+
+> ⚠️ 魔搭的免费额度按使用时长消耗，**训练完请及时停止实例**，并把权重下载到本地。
 
 ---
 
@@ -169,6 +210,8 @@ my_project/
 ├── src/
 │   ├── ai.py              # CLI 主程序（大模型对话 + 看图说话）
 │   └── detector.py        # YOLO 目标检测模块（只负责"看"）
+├── train/
+│   └── train_yolo.py      # YOLO 训练脚本（在魔搭免费 GPU 上运行）
 ├── weights/               # 模型权重（已被 .gitignore 排除，首次运行自动下载）
 ├── data/
 │   └── samples/           # 测试用图片
