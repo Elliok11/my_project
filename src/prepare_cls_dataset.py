@@ -17,6 +17,7 @@
 
 【设计说明】
     - 用固定随机种子划分，保证结果可复现（每次运行划分一致）
+    - 保留原文件名（便于追溯来源），统一转成 .jpg；遇到重名自动加序号，不会互相覆盖
     - 每类少于 50 张会告警：数据太少，模型学不会
     - 类别不均衡会提示：某类特别多/特别少时，模型会偏向多数类
 """
@@ -93,8 +94,19 @@ def main() -> None:
         for split, items in (("train", train_images), ("val", val_images)):
             target = out_dir / split / cls_dir.name
             target.mkdir(parents=True, exist_ok=True)
+            used_names: set[str] = set()
             for img in items:
-                copy_image(img, target / f"{img.stem}.jpg", args.max_size)
+                # 保留原文件名（便于追溯来源），统一转成 .jpg；
+                # 不同子目录里可能有同名文件，重名时自动加序号，避免互相覆盖
+                name = f"{img.stem}.jpg"
+                if name in used_names or (target / name).exists():
+                    i = 2
+                    while (f"{img.stem}_{i}.jpg" in used_names
+                           or (target / f"{img.stem}_{i}.jpg").exists()):
+                        i += 1
+                    name = f"{img.stem}_{i}.jpg"
+                used_names.add(name)
+                copy_image(img, target / name, args.max_size)
 
         stats.append({"类别": cls_dir.name, "总数": len(images),
                       "train": len(train_images), "val": len(val_images)})
