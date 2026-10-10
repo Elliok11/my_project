@@ -13,3 +13,6 @@ runs/
 
 .vscode/
 .idea/
+
+# 相册分类工具的输出结果（照片副本 + 报告）
+output/
