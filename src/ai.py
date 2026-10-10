@@ -4,6 +4,7 @@
     python src/ai.py "用一句话解释什么是机器学习"
     python src/ai.py "帮我写一个冒泡排序" --system "你是一个资深 Python 工程师，回答要简洁"
     python src/ai.py -i data/samples/bus.jpg "这张图里有什么"     # YOLO 看图 + 大模型说话
+    python src/ai.py -i data/samples/bus.jpg "有什么" --weights weights/best.pt  # 用自己训练的权重
     python src/ai.py "你好" --no-stream                          # 关闭流式输出
     python src/ai.py "你好" --model qwen2.5:0.5b                 # 换一个模型
 
@@ -74,13 +75,14 @@ def ask_once(prompt: str, model: str, system: str | None) -> None:
     print(resp.json()["response"])
 
 
-def build_vision_prompt(image_path: str, question: str, conf: float = 0.35) -> str:
+def build_vision_prompt(image_path: str, question: str, conf: float = 0.35,
+                        weights: str | None = None) -> str:
     """先用 YOLO 检测图片，再把结果拼成给大模型的提示词。"""
     # 延迟导入：只在用到图片功能时才加载 YOLO（它依赖 torch，加载较慢）
-    from detector import detect, format_for_llm
+    from detector import DEFAULT_WEIGHTS, detect, format_for_llm
 
     print(f"[YOLO] 正在检测 {image_path} ...", file=sys.stderr)
-    detections = detect(image_path, conf=conf)
+    detections = detect(image_path, weights=weights or DEFAULT_WEIGHTS, conf=conf)
 
     print(f"[YOLO] 检测到 {len(detections)} 个目标：", file=sys.stderr)
     for d in detections:
@@ -105,6 +107,7 @@ def main() -> None:
     parser.add_argument("prompt", help="你想问的问题")
     parser.add_argument("-i", "--image", default=None, help="图片路径：先用 YOLO 检测，再让大模型描述")
     parser.add_argument("--conf", type=float, default=0.35, help="YOLO 置信度阈值，默认 0.35")
+    parser.add_argument("--weights", default=None, help="YOLO 权重文件，默认用官方 yolov8n.pt")
     parser.add_argument("--model", default=DEFAULT_MODEL, help=f"模型名，默认 {DEFAULT_MODEL}")
     parser.add_argument("--system", default=None, help="系统提示词，用来设定角色或回答风格")
     parser.add_argument("--no-stream", action="store_true", help="关闭流式输出，等全部生成完再显示")
@@ -114,7 +117,7 @@ def main() -> None:
     prompt = args.prompt
     if args.image:
         try:
-            prompt = build_vision_prompt(args.image, args.prompt, args.conf)
+            prompt = build_vision_prompt(args.image, args.prompt, args.conf, args.weights)
         except FileNotFoundError:
             print(f"找不到图片：{args.image}", file=sys.stderr)
             sys.exit(1)
