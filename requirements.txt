@@ -1,1 +1,4 @@
+# 先装 CPU 版 PyTorch（约 200 MB），避免默认下载 2.5 GB 的 CUDA 版本：
+# py -3.11 -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 requests>=2.31
+ultralytics>=8.4
