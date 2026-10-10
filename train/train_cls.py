@@ -44,12 +44,15 @@ def main() -> None:
         imgsz=args.imgsz,
         batch=args.batch,
         device=args.device,
-        project="runs",
-        name="classify",
+        # 不指定 project/name：使用 ultralytics 的默认输出目录。
+        # 实际保存位置以训练日志里 save_dir= 那一行为准（不同版本可能不同）
     )
 
-    print("\n[训练完成] 最佳权重：runs/classify/train/weights/best.pt")
-    print("请下载到本机 weights/ 目录（建议命名为 cls_best.pt，避免和检测权重混淆）。")
+    print("\n[训练完成] 结果目录见训练日志里 save_dir= 那一行")
+    print("  最佳权重   : <save_dir>/weights/best.pt")
+    print("  混淆矩阵   : <save_dir>/confusion_matrix.png   ← 一定要下载，用来分析错分")
+    print("  训练曲线   : <save_dir>/results.png")
+    print("下载到本机后，权重建议命名为 weights/cls_best.pt，避免和检测权重混淆。")
 
 
 if __name__ == "__main__":
