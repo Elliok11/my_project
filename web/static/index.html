@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>相册 AI 工具箱</title>
+<link rel="stylesheet" href="static/style.css">
+</head>
+<body>
+<div id="app" v-cloak>
+
+  <header>
+    <div class="brand">
+      <h1>📷 相册 AI 工具箱</h1>
+      <p class="sub">本地大模型 + YOLO 检测 + 自训练分类模型 · 全程在本机运行，不联网、不调云端 API</p>
+    </div>
+
+    <nav class="tabs">
+      <button v-for="t in tabs" :key="t.id"
+              :class="['tab', { active: tab === t.id }]"
+              @click="tab = t.id">
+        {{ t.icon }} {{ t.name }}
+      </button>
+    </nav>
+
+    <div class="status" :class="statusClass">
+      <span class="dot"></span>
+      <span v-if="status.ollama">大模型就绪 · {{ status.model }}</span>
+      <span v-else>大模型未启动 —— 请先运行 <code>ollama serve</code></span>
+    </div>
+  </header>
+
+  <main>
+
+    <!-- ══════════ ① 对话 ══════════ -->
+    <section class="panel" v-show="tab === 'chat'">
+      <div class="chat-box">
+        <div v-if="!messages.length" class="empty">
+          问我点什么吧 —— 比如「用一句话解释什么是机器学习」
+        </div>
+        <div v-for="(m, i) in messages" :key="i" :class="['msg', m.role]">
+          <div class="avatar">{{ m.role === 'user' ? '🙋' : '🤖' }}</div>
+          <div class="bubble">{{ m.content }}<span v-if="m.streaming" class="caret">▊</span></div>
+        </div>
+      </div>
+      <div class="input-row">
+        <input v-model="chatInput" @keyup.enter="sendChat"
+               placeholder="输入问题，回车发送"
+               :disabled="sending">
+        <button class="primary" @click="sendChat" :disabled="sending || !chatInput.trim()">
+          {{ sending ? '生成中…' : '发送' }}
+        </button>
+        <button class="ghost" @click="messages = []" :disabled="sending">清空</button>
+      </div>
+      <p class="hint">模型：qwen2.5:1.5b ｜ 纯 CPU 推理，实测约 13 tokens/秒</p>
+    </section>
+
+    <!-- ══════════ ② 看图说话 ══════════ -->
+    <section class="panel" v-show="tab === 'vision'">
+      <div class="drop" @click="$refs.visionInput.click()"
+           @dragover.prevent="dragging = true"
+           @dragleave.prevent="dragging = false"
+           @drop.prevent="onVisionDrop"
+           :class="{ dragging }">
+        <input ref="visionInput" type="file" accept="image/*" hidden @change="onVisionPick">
+        <template v-if="!visionLoading">
+          <div class="drop-icon">🖼️</div>
+          <div>点击选择图片，或把图片拖到这里</div>
+          <div class="drop-sub">会先用 YOLO 检测物体，再让大模型用自然语言描述</div>
+        </template>
+        <template v-else>
+          <div class="spinner"></div>
+          <div>正在检测 + 生成描述…（约 10~20 秒）</div>
+        </template>
+      </div>
+
+      <div v-if="visionImage" class="vision-result">
+        <div class="img-wrap">
+          <img :src="visionImage" alt="待分析图片">
+          <div v-for="(b, i) in visionBoxes" :key="i" class="box" :style="boxStyle(b)">
+            <span class="box-label">{{ b.label }} {{ b.conf }}</span>
+          </div>
+        </div>
+        <div class="desc">
+          <h3>🔍 检测到的物体（{{ visionBoxes.length }} 个）</h3>
+          <ul class="chips">
+            <li v-for="(b, i) in visionBoxes" :key="i">
+              {{ b.label }}<small>{{ b.conf }}</small>
+            </li>
+          </ul>
+          <h3>💬 大模型的描述</h3>
+          <p class="desc-text">{{ visionDesc }}</p>
+        </div>
+      </div>
+      <p v-if="visionError" class="error">{{ visionError }}</p>
+    </section>
+
+    <!-- ══════════ ③ 相册分类 ══════════ -->
+    <section class="panel" v-show="tab === 'album'">
+      <div class="drop" @click="$refs.albumInput.click()"
+           @dragover.prevent="dragging = true"
+           @dragleave.prevent="dragging = false"
+           @drop.prevent="onAlbumDrop"
+           :class="{ dragging }">
+        <input ref="albumInput" type="file" accept="image/*" multiple hidden @change="onAlbumPick">
+        <template v-if="!albumLoading">
+          <div class="drop-icon">🗂️</div>
+          <div>点击选择多张图片，或整个文件夹拖进来</div>
+          <div class="drop-sub">支持几百张（会自动分批上传，边传边出结果）· 分类约 14 毫秒/张</div>
+        </template>
+        <template v-else>
+          <div class="spinner"></div>
+          <div>正在分类 {{ albumProgress }}…（分批上传，结果会逐批出现）</div>
+        </template>
+      </div>
+
+      <div class="threshold">
+        <label>
+          置信度阈值
+          <input type="range" min="0" max="0.95" step="0.05" v-model.number="minConf">
+          <strong>{{ minConf.toFixed(2) }}</strong>
+        </label>
+        <span class="hint">低于阈值的图不强行归类，统一进「其他」</span>
+      </div>
+
+      <div v-if="albumStats.length" class="stats">
+        <div v-for="s in albumStats" :key="s.category"
+             class="stat" :class="{ other: s.category === '其他' }">
+          <span class="cat">{{ s.category }}</span>
+          <span class="num">{{ s.count }}</span>
+        </div>
+      </div>
+
+      <div v-if="albumResults.length" class="save-bar">
+        <button class="primary" @click="saveAlbum" :disabled="saveState === 'saving'">
+          {{ saveState === 'saving' ? '保存中…' : '💾 保存到 output 文件夹' }}
+        </button>
+        <span class="save-tip">
+          按当前阈值保存 —— 界面上的分法会原样写进磁盘，每个分类一个子文件夹
+        </span>
+      </div>
+
+      <p v-if="saveState && saveState !== 'saving'" class="saved">
+        ✅ 已保存 {{ albumResults.length }} 张到 <code>{{ saveState }}</code>
+      </p>
+      <p v-if="saveError" class="error">{{ saveError }}</p>
+
+      <div v-if="albumResults.length" class="grid">
+        <div v-for="(r, i) in albumResults" :key="i"
+             class="card" :class="{ uncertain: r.uncertain }">
+          <img :src="r.thumb" :alt="r.name" loading="lazy">
+          <div class="meta">
+            <strong>{{ r.category }}</strong>
+            <span>{{ r.conf.toFixed(3) }}</span>
+          </div>
+        </div>
+      </div>
+      <p v-if="albumError" class="error">{{ albumError }}</p>
+    </section>
+
+    <!-- ══════════ ④ Agent ══════════ -->
+    <section class="panel" v-show="tab === 'agent'">
+      <div class="agent-intro">
+        <p>
+          这一页演示 <strong>Agent Harness</strong>：本地小模型（qwen2.5:1.5b）<strong>自己决定</strong>调用哪个工具，
+          右边实时显示它的每一步。模型本身很弱，所以 harness 承担了容错解析、参数校验、重复调用检测和强制收尾。
+        </p>
+        <div class="chip-row">
+          <span class="chip-label">可用工具</span>
+          <span v-for="t in agentTools" :key="t.name" class="tool-chip" :title="t.desc">
+            {{ t.name }}
+          </span>
+          <span v-if="!agentTools.length" class="chip-loading">加载中…</span>
+        </div>
+        <div class="chip-row">
+          <span class="chip-label">试试</span>
+          <button v-for="ex in agentExamples" :key="ex" class="example"
+                  @click="askExample(ex)" :disabled="agentRunning">{{ ex }}</button>
+        </div>
+      </div>
+
+      <div class="agent-layout">
+        <div class="agent-chat">
+          <div v-if="!agentMessages.length" class="empty">
+            在下面说一句话，让 Agent 动手去做
+          </div>
+          <div v-for="(m, i) in agentMessages" :key="i" :class="['msg', m.role]">
+            <div class="avatar">{{ m.role === 'user' ? '🙋' : '🤖' }}</div>
+            <div class="bubble">{{ m.content
+              }}<span v-if="m.role === 'bot' && !m.content && agentRunning" class="caret">▊</span></div>
+          </div>
+        </div>
+
+        <div class="agent-steps">
+          <h3>🔧 执行过程</h3>
+          <div v-if="!agentSteps.length" class="steps-empty">还没有开始</div>
+          <div v-for="(s, i) in agentSteps" :key="i" :class="['step', s.kind]">
+            <div class="step-text">{{ s.text }}</div>
+            <div v-if="s.args" class="step-args">
+              <span v-for="(v, k) in s.args" :key="k">{{ k }} = {{ v }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="input-row">
+        <input v-model="agentInput" @keyup.enter="runAgent"
+               placeholder="比如：帮我整理一下 data/my_photos"
+               :disabled="agentRunning">
+        <button class="primary" @click="runAgent" :disabled="agentRunning || !agentInput.trim()">
+          {{ agentRunning ? '执行中…' : '让 Agent 去做' }}
+        </button>
+        <button class="ghost" @click="agentMessages = []; agentSteps = []"
+                :disabled="agentRunning">清空</button>
+      </div>
+      <p v-if="agentError" class="error">{{ agentError }}</p>
+    </section>
+
+  </main>
+
+  <footer>
+    <span>分类优先两级流水线 ｜ 分类模型：独立验证集 Top-1 94.6%</span>
+    <span>检测模型：YOLOv8n（自训练） ｜ 大模型：qwen2.5:1.5b（本地）</span>
+  </footer>
+
+</div>
+
+<script src="static/vue.global.prod.js"></script>
+<script src="static/app.js"></script>
+</body>
+</html>
