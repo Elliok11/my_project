@@ -84,9 +84,9 @@ python src/ai.py -i data/samples/bus.jpg "这张图里有什么"
 
 ### 使用示例
 
-```
+
 :: 看图说话：YOLO 负责"看"，大模型负责"说"
-```
+
 ```
 python src/ai.py -i data/samples/bus.jpg "这张图里有什么？请用中文回答"
 ```
