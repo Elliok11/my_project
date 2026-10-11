@@ -44,6 +44,12 @@
 
 ## 快速开始（复现步骤）
 
+```
+d:
+cd desktop\my_project
+
+```
+
 
 :: 1. 安装 Ollama
 ::    下载 https://ollama.com/download/windows 并安装
