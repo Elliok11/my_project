@@ -43,33 +43,41 @@
 ---
 
 ## 快速开始（复现步骤）
-
-```cmd
 :: 0. 进入项目目录
+```
 cd /d D:\desktop\my_project
-
+```
 :: 1. 安装 Ollama
+
 ::    下载 https://ollama.com/download/windows 并安装
 
 :: 2. 拉取模型（约 1 GB）
+```
 ollama pull qwen2.5:1.5b
-
+```
 :: 3. 【关键】关闭 Vulkan，强制使用 CPU
 ::    不设这一步，本机会直接崩溃，详见"已知问题"
+```
 setx OLLAMA_VULKAN 0
-
+```
 :: 4. 启动服务（新开一个终端窗口，保持不关）
+```
 ollama serve
-
+```
 :: 5. 安装 Python 依赖
 ::    先装 CPU 版 PyTorch（约 200 MB），否则默认会下载 2.5 GB 的 CUDA 版本
+```
 py -3.11 -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 py -3.11 -m pip install -r requirements.txt
+```
 
 :: 6. 纯文字对话
+```
 python src/ai.py "用一句话解释什么是机器学习"
-
+```
 :: 7. 看图说话（首次运行会自动下载 6 MB 的 YOLO 预训练权重）
+
+```
 python src/ai.py -i data/samples/bus.jpg "这张图里有什么"
 ```
 
