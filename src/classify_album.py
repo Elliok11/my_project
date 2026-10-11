@@ -1,34 +1,36 @@
-"""只用分类模型整理相册 —— 不走物体检测那一级
+"""相册分类工具（纯分类 + 置信度兜底到「其他」）
 
-【它和 organizer.py 的区别】
+【工作方式】
+    每一张照片都交给分类模型判断（截图 / 文档 / 风景 / 表情包 / 美食）
+        ├── 置信度 ≥ 阈值  →  归入对应分类
+        └── 置信度 <  阈值  →  归入「其他」（模型没把握，不强行归类）
 
-    organizer.py      两级流水线：YOLO 检测优先 → 认不出的才交给分类模型
-                      结果 = 检测的 12 类（人像/宠物动物/美食餐具/…）+ 分类的 4 类
+【为什么用置信度兜底，而不是训练一个「其他」类】
+    曾考虑过训练第 6 类「其他」，但放弃，原因：
+      1. 「其他」是个杂类，内容五花八门，要学好需要很大的样本量和多样性
+      2. 采集来的"其他"样本容易模糊它与「风景」等已有类别的边界，
+         反而会跟那些类抢样本，把原本能分对的图带偏
+    所以改用规则兜底：没把握的图直接进「其他」文件夹，交给人复核。
 
-    classify_album.py 单级：所有照片都交给分类模型 → 只有 5 类
-                      （截图 / 美食 / 风景 / 文档 / 表情包）
-
-【什么时候用这个】
-    - 你的相册内容本来就集中在这 5 类
-    - 你想单独看看分类模型工作的效果
-    - 你想对比"纯分类"和"两级流水线"哪个更适合你
-
-【⚠️ 必须知道的代价】
-    分类模型只认识 5 类。相册里如果有"人像""宠物""汽车""家具"这类照片，
-    它没有对应类别，只能**强行归到最像的那一类** → 必然产生误判。
-    所以本工具额外做两件事：
-      1. 记录每张图的置信度
-      2. 把置信度低于阈值（默认 0.6）的单独放进「低置信度」文件夹，供人工复核
+【⚠️ 已知局限：置信度并不完全可靠（实测数据）】
+    在 52 张真实相册上人工核对后发现：
+        判错的图：置信度 0.99 / 0.93 / 0.77 / 0.70 / 0.66（都很自信）
+        判对的图：最低到 0.54 / 0.44 / 0.40（反而不自信）
+    即"自信程度"和"是否正确"没有可靠关系（深度学习里叫校准差）。因此：
+      - 阈值设高 → 会误伤答对的图
+      - 阈值设低 → 拦不住答错的图
+    本工具会打印「不同阈值下会有多少张进其他」的对照表，供按实际需要选。
 
 【用法】
-    # 先预览（不复制文件）
+    # 预览 + 看阈值对照表（不复制文件）
     python src/classify_album.py -i data/my_photos --dry-run
 
-    # 正式分类
+    # 正式分类（默认阈值 0.6）
     python src/classify_album.py -i data/my_photos -o output/cls_sorted
 
-    # 调整置信度门槛 / 换权重
-    python src/classify_album.py -i data/my_photos --min-conf 0.5 --weights weights/cls_best.pt
+    # 调阈值：更严（更多图进「其他」）/ 更松 / 完全不兜底
+    python src/classify_album.py -i data/my_photos -o out --min-conf 0.8
+    python src/classify_album.py -i data/my_photos -o out --min-conf 0.0
 """
 import argparse
 import shutil
@@ -45,7 +47,8 @@ CLS_NAMES = {
     "meme": "表情包",
     "food_cn": "美食",
 }
-LOW_CONF_DIR = "低置信度"
+OTHER_DIR = "其他"                      # 置信度低于阈值的图放这里
+SWEEP_THRESHOLDS = [0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95]
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 
@@ -55,7 +58,7 @@ def find_images(input_dir: Path) -> list[Path]:
 
 
 def classify_all(images: list[Path], weights: str, imgsz: int, batch: int) -> list[dict]:
-    """对全部图片跑分类模型（不做任何检测）。"""
+    """对全部图片跑分类模型（不做任何检测），记录类别与置信度。"""
     model = YOLO(weights)
     records: list[dict] = []
 
@@ -66,7 +69,7 @@ def classify_all(images: list[Path], weights: str, imgsz: int, batch: int) -> li
             top1 = int(result.probs.top1)
             records.append({
                 "path": path,
-                "label": model.names[top1],                    # 英文类名
+                "label": model.names[top1],                     # 英文类名
                 "category": CLS_NAMES.get(model.names[top1], model.names[top1]),
                 "conf": float(result.probs.top1conf),
             })
@@ -76,41 +79,53 @@ def classify_all(images: list[Path], weights: str, imgsz: int, batch: int) -> li
 
 
 def print_summary(records: list[dict], min_conf: float) -> None:
-    print()
-    print(f"{'分类':<10}{'数量':>6}{'占比':>9}{'平均置信度':>12}")
-    print("-" * 40)
-
     counter = Counter(r["category"] for r in records)
     confs: dict[str, list[float]] = defaultdict(list)
     for r in records:
         confs[r["category"]].append(r["conf"])
+    low = [r for r in records if r["conf"] < min_conf]
 
+    print()
+    print(f"{'分类':<10}{'数量':>6}{'占比':>9}{'平均置信度':>12}")
+    print("-" * 40)
     for name in list(CLS_NAMES.values()):
         n = counter.get(name, 0)
         if n:
             avg = sum(confs[name]) / len(confs[name])
             print(f"{name:<10}{n:>6}{n / len(records) * 100:>8.1f}%{avg:>12.3f}")
-
-    low = [r for r in records if r["conf"] < min_conf]
+    if low:
+        avg = sum(r["conf"] for r in low) / len(low)
+        print(f"{OTHER_DIR:<10}{len(low):>6}{len(low) / len(records) * 100:>8.1f}%{avg:>12.3f}")
     print("-" * 40)
-    print(f"合计 {len(records)} 张；其中置信度低于 {min_conf} 的：{len(low)} 张"
-          f"（{len(low) / len(records) * 100:.1f}%）→ 建议人工复核")
+    print(f"合计 {len(records)} 张；其中 {len(low)} 张因置信度 < {min_conf} 被归入「{OTHER_DIR}」")
+
+
+def print_threshold_sweep(records: list[dict]) -> None:
+    """打印"不同阈值下会有多少张进其他"的对照表，供选阈值。"""
+    total = len(records)
+    print()
+    print("不同阈值下会被归入「其他」的数量（供你选阈值参考）：")
+    for t in SWEEP_THRESHOLDS:
+        n = sum(1 for r in records if r["conf"] < t)
+        bar = "█" * min(40, n)
+        print(f"  {t:.2f} → {n:>3} 张 ({n / total * 100:>5.1f}%)  {bar}")
 
 
 def write_report(records: list[dict], out_dir: Path, args, min_conf: float) -> Path:
     report = out_dir / "report.md"
     counter = Counter(r["category"] for r in records)
+    low = [r for r in records if r["conf"] < min_conf]
 
     lines = [
-        "# 相册分类报告（纯分类模型，无物体检测）",
+        "# 相册分类报告（纯分类 + 置信度兜底）",
         "",
         f"- 输入目录：`{args.input}`",
         f"- 图片总数：{len(records)}",
         f"- 使用权重：`{args.weights}`（imgsz={args.imgsz}）",
-        f"- 置信度门槛：{min_conf}",
+        f"- **置信度阈值**：{min_conf}（低于此值的归入「{OTHER_DIR}」）",
         "",
-        "> ⚠️ 本模式**不使用 YOLO 物体检测**，全部照片都交给 5 类分类模型判断。",
-        "> 相册中不属于这 5 类的照片（如人像、宠物、汽车）会被强制归类，可能误判。",
+        "> 本工具不使用物体检测，全部照片由 5 类分类模型判断；",
+        f"> 模型没把握（置信度 < {min_conf}）的不强行归类，统一放进「{OTHER_DIR}」供人工复核。",
         "",
         "## 分类统计",
         "",
@@ -125,17 +140,26 @@ def write_report(records: list[dict], out_dir: Path, args, min_conf: float) -> P
         if n:
             avg = sum(confs[name]) / len(confs[name])
             lines.append(f"| {name} | {n} | {n / len(records) * 100:.1f}% | {avg:.3f} |")
+    if low:
+        avg = sum(r["conf"] for r in low) / len(low)
+        lines.append(f"| {OTHER_DIR} | {len(low)} | {len(low) / len(records) * 100:.1f}% | {avg:.3f} |")
 
     lines += ["", "## 明细（含置信度，便于人工复核）", ""]
     for name in list(CLS_NAMES.values()):
-        group = [r for r in records if r["category"] == name]
+        group = [r for r in records if r["category"] == name and r["conf"] >= min_conf]
         if not group:
             continue
         lines.append(f"### {name}（{len(group)} 张）")
         lines.append("")
         for r in sorted(group, key=lambda x: -x["conf"]):
-            flag = " ⚠️低置信度" if r["conf"] < min_conf else ""
-            lines.append(f"- `{r['path'].name}` — {r['conf']:.3f}{flag}")
+            lines.append(f"- `{r['path'].name}` — {r['conf']:.3f}")
+        lines.append("")
+    if low:
+        lines.append(f"### {OTHER_DIR}（{len(low)} 张，置信度低于 {min_conf}）")
+        lines.append("")
+        for r in sorted(low, key=lambda x: x["conf"]):
+            lines.append(f"- `{r['path'].name}` — {r['conf']:.3f}"
+                         f"（模型觉得最像「{r['category']}」但没把握）")
         lines.append("")
 
     report.write_text("\n".join(lines), encoding="utf-8")
@@ -143,14 +167,14 @@ def write_report(records: list[dict], out_dir: Path, args, min_conf: float) -> P
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="只用分类模型整理相册（5 类）")
+    parser = argparse.ArgumentParser(description="相册分类工具（纯分类 + 置信度兜底到「其他」）")
     parser.add_argument("-i", "--input", required=True, help="输入目录")
     parser.add_argument("-o", "--output", default="output/cls_sorted", help="输出目录")
     parser.add_argument("--weights", default="weights/cls_best.pt", help="分类模型权重")
     parser.add_argument("--imgsz", type=int, default=224, help="分类输入尺寸，默认 224")
     parser.add_argument("--batch", type=int, default=16, help="批处理大小")
     parser.add_argument("--min-conf", type=float, default=0.6,
-                        help="置信度门槛，低于此值的会被单独放进「低置信度」文件夹")
+                        help="置信度阈值：低于此值的归入「其他」，默认 0.6（填 0 表示不兜底）")
     parser.add_argument("--dry-run", action="store_true", help="只预览，不复制文件")
     args = parser.parse_args()
 
@@ -165,6 +189,7 @@ def main() -> None:
     print(f"找到 {len(images)} 张图片，用分类模型判断（imgsz={args.imgsz}）...")
     records = classify_all(images, args.weights, args.imgsz, args.batch)
     print_summary(records, args.min_conf)
+    print_threshold_sweep(records)
 
     if args.dry_run:
         print()
@@ -174,7 +199,7 @@ def main() -> None:
     out_dir = Path(args.output)
     out_dir.mkdir(parents=True, exist_ok=True)
     for r in records:
-        folder = LOW_CONF_DIR if r["conf"] < args.min_conf else r["category"]
+        folder = OTHER_DIR if r["conf"] < args.min_conf else r["category"]
         target = out_dir / folder
         target.mkdir(exist_ok=True)
         shutil.copy2(r["path"], target / r["path"].name)
