@@ -32,6 +32,9 @@ data/
 # ── Web 界面运行时上传的临时文件 ──
 web/uploads/
 
+# ── 前端库：保持仓库体积小，不进仓库，用 README 里的命令自行下载 ──
+web/static/vue.global.prod.js
+
 # ── 例外：README 里要展示的插图，需要提交到仓库 ──
 !docs/*.png
 !docs/*.jpg

@@ -226,6 +226,28 @@
 </div>
 
 <script src="static/vue.global.prod.js"></script>
-<script src="static/app.js"></script>
+<script>
+  // Vue 本体没有提交进仓库（保持仓库体积小）。
+  // 万一忘了下载，这里给一个明确的指引，而不是让用户看到白屏。
+  if (typeof Vue === 'undefined') {
+    document.getElementById('app').innerHTML = `
+      <div style="max-width:620px;margin:90px auto;padding:28px;border:1px solid #e4e6ef;
+                  border-radius:12px;background:#fff;font-size:14px;line-height:1.8;">
+        <h2 style="margin:0 0 12px;font-size:19px;">⚠️ 缺少 Vue 文件</h2>
+        <p style="margin:0 0 14px;color:#6b7280;">
+          Vue 本体没有提交进 git 仓库（为了让仓库体积尽量小），需要先自行下载：
+        </p>
+        <pre style="background:#f5f6fa;border:1px solid #e4e6ef;border-radius:8px;padding:12px;
+                    overflow-x:auto;font-size:12.5px;">curl -o web\\static\\vue.global.prod.js https://cdn.staticfile.org/vue/3.4.21/vue.global.prod.min.js</pre>
+        <p style="margin:14px 0 0;color:#6b7280;">
+          下载完成后刷新本页即可。（说明见 README 的「Web 界面」一节）
+        </p>
+      </div>`
+  } else {
+    const script = document.createElement('script')
+    script.src = 'static/app.js'
+    document.body.appendChild(script)
+  }
+</script>
 </body>
 </html>
