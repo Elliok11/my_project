@@ -1,13 +1,12 @@
 # 本地大模型命令行助手
 
-> AI 协会创智部二面 · 实战题
-> 作者：[填你的名字]（GitHub: [Elliok11](https://github.com/Elliok11)）
 
-一个跑在**自己电脑上**的命令行 AI 助手：不联网、不调用云端 API，直接和本地部署的大模型对话；
+
+一个跑在**自己电脑上**的命令行 AI 助手
 再加上 YOLO 目标检测，它还能"看图说话"。
 
 题目要求"完成本地大模型部署 → 搭建自己的智能体 → 将模型作为 provider，通过 API 接入自己的应用"。
-本仓库记录了这个过程的**完整实现、踩坑记录与解决思路**，而不只是最后的代码。
+
 
 ---
 
@@ -45,48 +44,61 @@
 
 ## 快速开始（复现步骤）
 
-```cmd
+
 :: 1. 安装 Ollama
 ::    下载 https://ollama.com/download/windows 并安装
 
 :: 2. 拉取模型（约 1 GB）
+```
 ollama pull qwen2.5:1.5b
-
+```
 :: 3. 【关键】关闭 Vulkan，强制使用 CPU
 ::    不设这一步，本机会直接崩溃，详见"已知问题"
+```
 setx OLLAMA_VULKAN 0
-
+```
 :: 4. 启动服务（新开一个终端窗口，保持不关）
+```
 ollama serve
-
+```
 :: 5. 安装 Python 依赖
 ::    先装 CPU 版 PyTorch（约 200 MB），否则默认会下载 2.5 GB 的 CUDA 版本
+```
 py -3.11 -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 py -3.11 -m pip install -r requirements.txt
-
+```
 :: 6. 纯文字对话
+```
 python src/ai.py "用一句话解释什么是机器学习"
-
+```
 :: 7. 看图说话（首次运行会自动下载 6 MB 的 YOLO 预训练权重）
+```
 python src/ai.py -i data/samples/bus.jpg "这张图里有什么"
 ```
 
 ### 使用示例
 
-```cmd
+```
 :: 看图说话：YOLO 负责"看"，大模型负责"说"
+```
+```
 python src/ai.py -i data/samples/bus.jpg "这张图里有什么？请用中文回答"
-
+```
 :: 基本提问（默认流式输出，字会一个个蹦出来）
+```
 python src/ai.py "用三句话介绍一下你自己"
+```
 
 :: 设定角色
+```
 python src/ai.py "帮我写一个冒泡排序" --system "你是一个资深 Python 工程师，回答要简洁"
-
+```
 :: 关闭流式输出（等全部生成完再显示）
+```
 python src/ai.py "你好" --no-stream
-
+```
 :: 换一个小模型（更快，但更笨）
+```
 python src/ai.py "你好" --model qwen2.5:0.5b
 ```
 
@@ -133,20 +145,20 @@ python src/ai.py -i data/samples/bus.jpg "这张图里有什么" --weights weigh
 
 ---
 
-## 创意作品：相册智能分类工具（题目五）
+## 创意作品：相册智能分类工具
 
 **它解决什么问题**：照片越攒越多，翻找全靠手划。这个工具用 YOLO 自动"看懂"每张照片里的物体，
 按人类翻相册的习惯分类归档，并生成一份可检索的图文报告。
 
-### 分类标准是怎么定的（不是拍脑袋定的）
+### 分类标准是怎么定的
 
 1. 先查出模型能识别的**全部类别**（本模型为 COCO 的 80 类）
 2. 再按"翻相册的习惯"把它们归成 10 组：
    人像 / 宠物动物 / 美食餐具 / 交通工具 / 电子设备 / 家具室内 / 户外街道 / 运动娱乐 / 随身物品 / 玩具其他
 3. 用 128 张真实照片跑 `--dry-run`，**用实际分布验证方案是否合理**
 
-> 为什么先做第 1 步？如果凭空定分类（比如"风景""美食""人像"），
-> 很可能定出模型根本认不出的类别（模型只认"物体"，不认"场景"），工具就会大面积失效。
+
+
 
 ### 遇到的设计问题：一张图有多种物体，归哪一类？
 
@@ -162,11 +174,14 @@ python src/ai.py -i data/samples/bus.jpg "这张图里有什么" --weights weigh
 
 ### 用法
 
-```cmd
+
 :: 对比两种策略的分布（不复制任何文件）
+```
 python src/organizer.py -i data/album --dry-run
+```
 
 :: 正式分类
+```
 python src/organizer.py -i data/album -o output/album_sorted --strategy count
 ```
 
