@@ -283,12 +283,21 @@ python src/organizer.py -i data/album -o output/album_sorted --strategy count
 
 ### 启动方式
 
+> ⚠️ **Vue 本体没有提交进仓库**（为了让仓库体积尽量小）。
+> 首次使用请**自行下载 Vue 到 `web/static/`**（约 140 KB，只做一次）：
+
 ```cmd
 cd /d D:\desktop\my_project
+curl -o web\static\vue.global.prod.js https://cdn.staticfile.org/vue/3.4.21/vue.global.prod.min.js
+```
+
+然后启动服务：
+
+```cmd
 python web\app.py
 ```
 
-然后浏览器打开 http://127.0.0.1:5000
+浏览器打开 http://127.0.0.1:5000
 （如果【对话】页用不了，说明 Ollama 没启动，另开一个窗口运行 `ollama serve`）
 
 ### 技术选型与理由
@@ -297,7 +306,7 @@ python web\app.py
 |---|---|---|
 | 后端 | Flask | 轻量够用，而且能直接复用 `src/` 下已有的检测与分类模块 |
 | 前端 | Vue 3（不打包，直接引入） | 题目点名了 vue；不用 node/npm 构建，这台 2015 年的笔记本也不用装前端工具链 |
-| Vue 本体 | **下载到本地**而不走 CDN | 我的网络不稳定（本项目已踩过 GitHub 连不上的坑），演示时绝不能依赖外网 |
+| Vue 本体 | **下载到本地**而不走 CDN，且**不提交进仓库** | 我的网络不稳定（本项目已踩过 GitHub 连不上的坑），演示时绝不能依赖外网；<br>但它属于第三方库，放进仓库会白白增大体积，所以由使用者按上面的命令自行下载 |
 | 图片传输 | 上传后转缩略图 base64 回传 | 一次传几十张也不会把响应撑爆 |
 
 ### 两个工程细节
