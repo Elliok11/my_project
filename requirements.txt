@@ -2,3 +2,4 @@
 # py -3.11 -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 requests>=2.31
 ultralytics>=8.4
+flask>=3.0
