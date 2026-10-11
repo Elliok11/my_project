@@ -1,7 +1,7 @@
 # 本地大模型命令行助手
 
 > AI 协会创智部二面 · 实战题
-> 作者：[填你的名字]（GitHub: [Elliok11](https://github.com/Elliok11)）
+> 作者：Elliok11（GitHub: [@Elliok11](https://github.com/Elliok11)）
 
 一个跑在**自己电脑上**的命令行 AI 助手：不联网、不调用云端 API，直接和本地部署的大模型对话；
 再加上 YOLO 目标检测，它还能"看图说话"。
@@ -48,6 +48,9 @@
 ## 快速开始（复现步骤）
 
 ```cmd
+:: 0. 进入项目目录
+cd /d D:\desktop\my_project
+
 :: 1. 安装 Ollama
 ::    下载 https://ollama.com/download/windows 并安装
 
