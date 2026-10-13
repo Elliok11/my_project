@@ -35,6 +35,16 @@ web/uploads/
 # ── 前端库：保持仓库体积小，不进仓库，用 README 里的命令自行下载 ──
 web/static/vue.global.prod.js
 
+# ── ⚠️ 密钥文件：绝对不能进仓库 ──
+# 这一条是"事故级"的：key 一旦提交到 GitHub，就算马上删掉，
+# 它也已经进了 git 历史，机器人会在几分钟内扫到并盗用。
+# 所以宁可多排除几个名字。
+.env
+.env.*
+*.key
+secrets.json
+data/.credentials*
+
 # ── 例外：README 里要展示的插图，需要提交到仓库 ──
 !docs/*.png
 !docs/*.jpg
