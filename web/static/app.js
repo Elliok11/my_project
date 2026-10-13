@@ -20,6 +20,7 @@ createApp({
     const dragging = ref(false)
     const status = ref({ ollama: false, model: '' })
     const agentTools = ref([])          // 可用工具清单（Agent 页用，这里提前声明避免时序问题）
+    const agentSuggestions = ref([])    // 动态建议（后端扫描 data/ 目录生成）
     const statusClass = computed(() => (status.value.ollama ? 'ok' : 'bad'))
 
     onMounted(async () => {
@@ -32,6 +33,11 @@ createApp({
         agentTools.value = await (await fetch('/api/agent/tools')).json()
       } catch (e) {
         agentTools.value = []
+      }
+      try {
+        agentSuggestions.value = await (await fetch('/api/agent/suggestions')).json()
+      } catch (e) {
+        agentSuggestions.value = []
       }
     })
 
@@ -342,8 +348,8 @@ createApp({
       albumResults, albumStats, albumLoading, albumProgress, albumError, minConf,
       albumRunId, saveState, saveError, saveAlbum,
       onAlbumPick, onAlbumDrop,
-      agentTools, agentInput, agentRunning, agentMessages, agentSteps, agentError,
-      agentExamples, askExample, runAgent,
+      agentTools, agentSuggestions, agentInput, agentRunning, agentMessages, agentSteps,
+      agentError, agentExamples, askExample, runAgent,
     }
   },
 }).mount('#app')

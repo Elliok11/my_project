@@ -165,17 +165,40 @@
           这一页演示 <strong>Agent Harness</strong>：本地小模型（qwen2.5:1.5b）<strong>自己决定</strong>调用哪个工具，
           右边实时显示它的每一步。模型本身很弱，所以 harness 承担了容错解析、参数校验、重复调用检测和强制收尾。
         </p>
-        <div class="chip-row">
-          <span class="chip-label">可用工具</span>
-          <span v-for="t in agentTools" :key="t.name" class="tool-chip" :title="t.desc">
-            {{ t.name }}
-          </span>
-          <span v-if="!agentTools.length" class="chip-loading">加载中…</span>
+
+        <!-- 能力提示：我能调用哪些工具 -->
+        <div class="cap-block">
+          <div class="cap-title">🔧 我能调用这些工具</div>
+          <div class="cap-list">
+            <div v-for="t in agentTools" :key="t.name" class="cap-item">
+              <code>{{ t.name }}</code>
+              <span>{{ t.desc }}</span>
+            </div>
+            <div v-if="!agentTools.length" class="chip-loading">加载中…</div>
+          </div>
         </div>
-        <div class="chip-row">
-          <span class="chip-label">试试</span>
-          <button v-for="ex in agentExamples" :key="ex" class="example"
-                  @click="askExample(ex)" :disabled="agentRunning">{{ ex }}</button>
+
+        <!-- 动态建议：靠扫描真实目录生成，点一下就跑 -->
+        <div class="cap-block">
+          <div class="cap-title">
+            💡 你现在可以让我做这些
+            <small>自动扫描 data/ 目录生成 · 列出来的都是真实存在的，不是模型编的</small>
+          </div>
+          <div v-if="agentSuggestions.length" class="suggest-grid">
+            <button v-for="(s, i) in agentSuggestions" :key="i" class="suggest-card"
+                    @click="askExample(s.question)" :disabled="agentRunning">
+              <span class="s-icon">{{ s.icon }}</span>
+              <span class="s-body">
+                <strong>{{ s.title }}</strong>
+                <small>{{ s.detail }}</small>
+              </span>
+            </button>
+          </div>
+          <div v-else class="chip-row">
+            <span class="chip-loading">没扫描到可操作的目录，可以先试试：</span>
+            <button v-for="ex in agentExamples" :key="ex" class="example"
+                    @click="askExample(ex)" :disabled="agentRunning">{{ ex }}</button>
+          </div>
         </div>
       </div>
 

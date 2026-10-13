@@ -51,6 +51,9 @@ CLS_NAMES = {
 }
 OTHER = "其他"
 
+IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
+MAX_ORGANIZE_IMAGES = 300   # 超过这个数量的文件夹不建议"整体整理"（会复制大量文件、耗时很久）
+
 UPLOAD_DIR = Path(__file__).resolve().parent / "uploads"
 UPLOAD_DIR.mkdir(exist_ok=True)
 RUNS_DIR = UPLOAD_DIR / "runs"          # 每次上传的图片暂存处（按 run_id 分目录）
@@ -314,6 +317,67 @@ def api_agent_tools():
     """给前端展示用的工具清单。"""
     from agent import TOOLS
     return jsonify([{"name": name, **spec} for name, spec in TOOLS.items()])
+
+
+@app.get("/api/agent/suggestions")
+def api_agent_suggestions():
+    """扫描项目里的 data/ 目录，生成「你现在可以让我做什么」的建议。
+
+    关键设计：**完全靠文件扫描生成，一次都不调用大模型**。因此：
+      - 列出来的目标都是**真实存在**的（模型会编造不存在的路径，扫描不会）
+      - 毫秒级响应，不占 CPU
+      - 用户往 data/ 里放了新文件夹，刷新页面就自动出现新建议
+    """
+    data_dir = ROOT / "data"
+    if not data_dir.is_dir():
+        return jsonify([])
+
+    folders: list[tuple[Path, list[Path]]] = []
+    for folder in sorted(data_dir.iterdir()):
+        if not folder.is_dir():
+            continue
+        images = sorted(p for p in folder.rglob("*") if p.suffix.lower() in IMAGE_EXTENSIONS)
+        if images:
+            folders.append((folder, images))
+
+    items: list[dict] = []
+
+    # ① 优先推荐"适合整理"的文件夹（5~300 张），张数多的排前面
+    album_like = [(f, i) for f, i in folders if 5 <= len(i) <= MAX_ORGANIZE_IMAGES]
+    album_like.sort(key=lambda pair: -len(pair[1]))
+    for folder, images in album_like[:3]:
+        rel = folder.relative_to(ROOT).as_posix()
+        items.append({
+            "icon": "🗂️",
+            "title": f"整理 {rel}",
+            "detail": f"{len(images)} 张照片 · 自动分类归档并生成报告",
+            "question": f"帮我整理一下 {rel} 这个文件夹",
+        })
+
+    # ② 张数很少的文件夹：建议看看其中的单张图
+    for folder, images in folders:
+        if len(images) <= 5:
+            for image in images[:2]:
+                rel = image.relative_to(ROOT).as_posix()
+                items.append({
+                    "icon": "🔍",
+                    "title": f"看看 {image.name} 里有什么",
+                    "detail": "用检测模型识别画面中的物体",
+                    "question": f"看看 {rel} 里有什么",
+                })
+
+    # ③ 图片特别多的文件夹：不建议整体整理，先数一数
+    for folder, images in folders:
+        if len(images) > MAX_ORGANIZE_IMAGES:
+            rel = folder.relative_to(ROOT).as_posix()
+            items.append({
+                "icon": "🔢",
+                "title": f"数一数 {rel}",
+                "detail": f"{len(images)} 张 · 数量较多，不建议整体整理",
+                "question": f"{rel} 里有多少张照片",
+            })
+
+    return jsonify(items[:6])
 
 
 @app.post("/api/agent")
