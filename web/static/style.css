@@ -251,6 +251,41 @@ button.example {
 button.example:hover:not(:disabled) { border-color: var(--accent-2); color: var(--accent); }
 
 .agent-layout { display: flex; gap: 16px; align-items: stretch; }
+
+/* ── 能力提示 + 动态建议 ── */
+.cap-block { margin-top: 14px; }
+.cap-title {
+  font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 8px;
+}
+.cap-title small { font-weight: 400; color: var(--text-dim); margin-left: 6px; font-size: 12px; }
+
+.cap-list { display: flex; flex-direction: column; gap: 6px; }
+.cap-item { display: flex; align-items: baseline; gap: 10px; font-size: 12.5px; }
+.cap-item code {
+  flex-shrink: 0; font-family: ui-monospace, Consolas, monospace;
+  background: #eef2ff; color: var(--accent); border: 1px solid #dbe1ff;
+  border-radius: 6px; padding: 2px 8px; font-size: 12px;
+}
+.cap-item span { color: var(--text-dim); }
+
+.suggest-grid {
+  display: grid; gap: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+}
+.suggest-card {
+  display: flex; align-items: flex-start; gap: 10px; text-align: left;
+  background: #f8f9ff; border: 1px solid #e0e2f8; border-radius: 10px;
+  padding: 11px 14px; cursor: pointer; font-family: inherit; transition: all .15s;
+}
+.suggest-card:hover:not(:disabled) {
+  border-color: var(--accent-2); background: #f2f3ff; transform: translateY(-1px);
+}
+.suggest-card:disabled { opacity: .55; cursor: not-allowed; }
+.s-icon { font-size: 18px; line-height: 1.3; flex-shrink: 0; }
+.s-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.s-body strong { font-size: 13px; color: var(--accent); font-weight: 600; word-break: break-all; }
+.s-body small { font-size: 12px; color: var(--text-dim); }
+
 .agent-chat {
   flex: 1 1 56%; min-height: 280px; max-height: 46vh; overflow-y: auto;
   display: flex; flex-direction: column; gap: 14px;
