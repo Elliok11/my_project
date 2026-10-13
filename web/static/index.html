@@ -239,6 +239,168 @@
       <p v-if="agentError" class="error">{{ agentError }}</p>
     </section>
 
+    <!-- ══════════ ⑤ 日程表 ══════════ -->
+    <section class="panel" v-show="tab === 'schedule'">
+      <div class="agent-intro">
+        <p>
+          以<strong>周</strong>为单位看安排 —— 因为课表就是以周为周期的。
+          用一句话、或者一张课表照片加进来，<strong>加之前会先告诉你会不会撞车</strong>。
+        </p>
+      </div>
+
+      <!-- ── 加日程：三种输入 ── -->
+      <div class="add-zone">
+        <div class="add-row">
+          <input v-model="schedText"
+                 @keyup.enter="parseScheduleText"
+                 placeholder="说一句话，例如：下周四晚上七点在东区 A201 开班会，大概一小时"
+                 :disabled="schedParsing">
+          <button class="primary" @click="parseScheduleText" :disabled="schedParsing || !schedText.trim()">
+            {{ schedParsing ? '解析中…' : '解析' }}
+          </button>
+          <label class="file-btn" :class="{ disabled: schedUploading }">
+            📷 课表照片
+            <input type="file" accept="image/*" @change="onSchedulePhoto" hidden>
+          </label>
+          <button class="ghost" @click="$refs.icsLink.click()"
+                  :disabled="!schedWeek || !schedWeek.total"
+                  title="导出 .ics，手机日历可以直接导入">
+            📅 导出到手机
+          </button>
+          <a ref="icsLink" href="/api/schedule/ics" style="display:none"></a>
+        </div>
+
+        <!-- 识别后端选择：两条路各有各的强项，让用户自己挑，并把差别写在界面上 -->
+        <div class="backend-row" v-if="schedBackends.available && schedBackends.available.length">
+          <span class="chip-label">照片用哪个识别：</span>
+          <label v-for="b in schedBackends.available" :key="b" class="backend-opt"
+                 :class="{ on: schedBackend === b }">
+            <input type="radio" :value="b" v-model="schedBackend">
+            <strong>{{ b === 'vlm' ? '云端视觉模型' : '本地 OCR' }}</strong>
+            <small>{{ backendHint(b) }}</small>
+          </label>
+        </div>
+        <p class="hint" v-if="schedBackends.available && schedBackends.available.length">
+          实测结论：<strong>网格课表（教务系统那种）必须用云端</strong> ——
+          本地 OCR 认字没问题，但推不出"哪个字属于哪个格子"；
+          云端模型直接看懂版面。列表版课表两条路都能用。
+        </p>
+        <p class="hint" v-else>
+          课表照片识别暂未配置 —— 说话/打字加日程不受影响。
+          打开方式见 <code>scheduler/ocr.py</code> 顶部的说明。
+        </p>
+      </div>
+
+      <!-- ── 解析结果预览：一定要用户确认 ── -->
+      <div v-if="schedPreview.length" class="preview">
+        <div class="preview-head">
+          <strong>请核对后再添加</strong>
+          <small>解析有可能出错。看错一行、当天就白跑一趟，所以这里必须你自己点头。</small>
+        </div>
+        <div v-for="(p, i) in schedPreview" :key="i" class="preview-card" :class="{ bad: !p.ok }">
+          <label class="pick">
+            <input type="checkbox" v-model="p.picked" :disabled="!p.ok">
+          </label>
+          <div class="preview-fields">
+            <input v-model="p.title" class="f-title" placeholder="事件名">
+            <input v-model="p.start" class="f-time" placeholder="2026-03-05T19:00">
+            <input v-model.number="p.duration_min" class="f-dur" type="number" min="5" step="5">
+            <span class="unit">分钟</span>
+            <input v-model="p.location" class="f-loc" placeholder="地点">
+          </div>
+          <div class="preview-meta">
+            <span v-if="p.weekday_label" class="tag">{{ p.weekday_label }}</span>
+            <span v-if="p.weekdays && p.weekdays.length" class="tag weekly">
+              每周{{ p.weekdays.map(w => '一二三四五六日'[w-1]).join('、') }}
+            </span>
+            <span v-if="p.prep_min" class="tag prep">提前 {{ p.prep_min }} 分钟准备</span>
+            <span v-if="p.missing && p.missing.length" class="tag missing">
+              缺：{{ p.missing.join('、') }}
+            </span>
+            <span v-if="p.note" class="tag note">{{ p.note }}</span>
+          </div>
+          <div v-if="p.verdict" class="verdict" :class="{ ok: p.verdict.ok }">
+            <div v-if="p.verdict.ok">✅ 这个时间没问题</div>
+            <div v-else>
+              <div v-for="(iss, k) in p.verdict.issues" :key="k" class="v-issue">
+                {{ iss.severity === 'hard' ? '❌' : '⚠️' }} {{ iss.message }}
+              </div>
+              <div v-if="p.verdict.alternatives && p.verdict.alternatives.length" class="v-alt">
+                可以改到：
+                <button v-for="(a, k) in p.verdict.alternatives" :key="k" class="alt-chip"
+                        @click="useAlternative(p, a)">
+                  {{ a.start.slice(5,10).replace('-','/') }} {{ a.start.slice(11) }}-{{ a.end.slice(11) }}
+                  <small>{{ a.reason }}</small>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="preview-actions">
+          <button class="primary" @click="addParsed" :disabled="!pickedCount">
+            添加选中的 {{ pickedCount }} 条
+          </button>
+          <button class="ghost" @click="schedPreview = []">取消</button>
+        </div>
+      </div>
+
+      <!-- ── 周视图 ── -->
+      <div class="week-bar">
+        <button class="ghost small" @click="shiftWeek(-1)">← 上一周</button>
+        <button class="ghost small" @click="gotoThisWeek">本周</button>
+        <button class="ghost small" @click="shiftWeek(1)">下一周 →</button>
+        <span class="week-label" v-if="schedWeek">
+          {{ schedWeek.monday }} ~ {{ schedWeek.sunday }}
+          <small>第 {{ schedWeek.week }} 周 ｜ 共 {{ schedWeek.total }} 件事</small>
+        </span>
+        <span class="legend">
+          <i class="dot course"></i>课
+          <i class="dot meeting"></i>会
+          <i class="dot activity"></i>活动
+          <i class="dot interview"></i>面试
+          <i class="dot personal"></i>个人
+        </span>
+      </div>
+
+      <p v-if="schedError" class="error">{{ schedError }}</p>
+
+      <div v-if="schedWeek && schedWeek.issues && schedWeek.issues.length" class="issue-bar">
+        <div v-for="(i, k) in schedWeek.issues" :key="k" :class="['issue', i.severity]">
+          {{ i.severity === 'hard' ? '❌' : '⚠️' }} {{ i.message }}
+        </div>
+      </div>
+
+      <div v-if="schedWeek" class="week-scroll">
+        <div class="week-grid" :style="{ height: (GRID_HOURS * HOUR_PX) + 'px' }">
+          <div v-for="d in schedWeek.days" :key="d.date"
+               class="day-col" :class="{ today: d.date === schedWeek.today }">
+            <div class="day-head">
+              <strong>{{ '周' + '一二三四五六日'[d.weekday - 1] }}</strong>
+              <small>{{ d.date.slice(5) }}</small>
+            </div>
+            <div class="day-body" :style="{ height: (GRID_HOURS * HOUR_PX) + 'px' }">
+              <div v-for="(it, k) in d.items" :key="k"
+                   class="ev" :class="[it.category, { short: evHeight(it) < 34 }]"
+                   :style="evStyle(it)"
+                   :title="it.title + '  ' + it.occ_start + '-' + it.occ_end + (it.location ? '  @' + it.location : '')">
+                <span v-if="it.prep_min" class="prep-block"
+                      :style="{ height: (it.prep_min / 60 * HOUR_PX) + 'px' }"
+                      title="需要提前准备"></span>
+                <span class="ev-time">{{ it.occ_start }}</span>
+                <span class="ev-title">{{ it.title }}</span>
+                <span v-if="it.location" class="ev-loc">{{ it.location }}</span>
+                <button class="ev-del" @click.stop="delEvent(it)" title="删除">×</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <p v-if="schedWeek && !schedWeek.total" class="empty">
+        这一周还没有安排。上面说一句话试试 —— 比如「每周三 19:00 社团例会 西区活动室」
+      </p>
+    </section>
+
   </main>
 
   <footer>
