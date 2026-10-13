@@ -11,10 +11,11 @@ createApp({
   setup() {
     /* ══════════ 通用 ══════════ */
     const tabs = [
-      { id: 'chat',   name: '对话',     icon: '💬' },
-      { id: 'vision', name: '看图说话', icon: '🔍' },
-      { id: 'album',  name: '相册分类', icon: '🗂️' },
-      { id: 'agent',  name: 'Agent',    icon: '🤖' },
+      { id: 'chat',     name: '对话',     icon: '💬' },
+      { id: 'vision',   name: '看图说话', icon: '🔍' },
+      { id: 'album',    name: '相册分类', icon: '🗂️' },
+      { id: 'schedule', name: '日程表',   icon: '📅' },
+      { id: 'agent',    name: 'Agent',    icon: '🤖' },
     ]
     const tab = ref('chat')
     const dragging = ref(false)
@@ -39,6 +40,12 @@ createApp({
       } catch (e) {
         agentSuggestions.value = []
       }
+      try {
+        schedBackends.value = await (await fetch('/api/schedule/backends')).json()
+      } catch (e) {
+        schedBackends.value = { available: [], how_to: {} }
+      }
+      await loadWeek('')
     })
 
     /**
@@ -242,6 +249,213 @@ createApp({
     function onAlbumPick(e) { runAlbum(e.target.files); e.target.value = '' }
     function onAlbumDrop(e) { dragging.value = false; runAlbum(e.dataTransfer.files) }
 
+    /* ══════════ ⑤ 日程表 ══════════
+     *
+     * 这块的定位和 Agent 页不一样：
+     *   Agent 页 = 让模型自己决定调哪个工具（展示 harness 的容错能力）
+     *   日程页   = 解析 → **用户肉眼确认** → 才落库（展示"让代码裁决"这条原则）
+     * 两者共用同一个排程内核。
+     *
+     * 为什么不做成"直接加进去"：日程一旦解析错了，人是按着它去开会的。
+     * 所以中间必须有一道人工确认，把解析的不确定性摊在用户眼前。
+     */
+
+    // 周视图的时间轴范围：07:00 ~ 23:00，一屏看完一天的作息
+    const GRID_HOURS = 16
+    const HOUR_PX = 52
+    const GRID_START_HOUR = 7
+
+    const schedWeek = ref(null)
+    const schedAnchor = ref('')          // 当前周里的任意一天
+
+    /**
+     * 把 Date 转成 "YYYY-MM-DD"，**用本地时区**。
+     *
+     * 【为什么不能直接用 toISOString().slice(0,10)】
+     *   toISOString() 返回的是 **UTC** 时间。本机是 UTC+8，
+     *   于是"本地周一 00:00"会被转成"UTC 周日 16:00"，日期整整少一天：
+     *
+     *       new Date('2026-10-12T00:00:00')      → 本地 Mon Oct 12 00:00 GMT+0800
+     *       同一个时刻 .toISOString()             → 2026-10-11T16:00:00.000Z
+     *       .slice(0, 10)                        → "2026-10-11"   ← 变成周日了
+     *
+     *   而服务端拿到日期后会算"这一周的周一"，于是一来一回就偏了一周。
+     *   实测症状：点「上一周」会往前跳两周，点「下一周」看起来没反应。
+     *
+     *   这类 bug 的坑在于**只在东时区出现**（西半球 offset 是负的，
+     *   本地 00:00 转 UTC 是同一天，反而正常）。所以"我这儿测着没问题"
+     *   一点都不保险 —— 凡是要把本地日期转字符串，都得走这个方法。
+     */
+    function toLocalDateString(d) {
+      const pad = (n) => String(n).padStart(2, '0')
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+    }
+    const schedText = ref('')
+    const schedParsing = ref(false)
+    const schedUploading = ref(false)
+    const schedPreview = ref([])
+    const schedError = ref('')
+    const schedBackends = ref({ available: [], how_to: {} })
+    // 默认选中哪个识别后端。**默认选云端视觉模型** —— 实测：
+    // 网格课表（教务系统那种）本地 OCR 结构还原只有 7/19 行，云端 12/12 全对。
+    // 本地 OCR 的价值在于离线、免费、不上传图片，所以留着让用户自己切。
+    const schedBackend = ref('vlm')
+    // 用本地时区拿"今天"。不能写成 new Date().toISOString().slice(0,10) ——
+    // 那在东八区会在**每天早上 8 点前**返回前一天（详见 toLocalDateString 的注释）。
+    const schedToday = ref(toLocalDateString(new Date()))
+
+    const pickedCount = computed(() => schedPreview.value.filter(p => p.picked).length)
+
+    async function loadWeek(anchor) {
+      schedError.value = ''
+      const url = '/api/schedule/week' + (anchor ? '?date=' + anchor : '')
+      const data = await postJSON(url)
+      if (data.error) { schedError.value = data.error; return }
+      schedWeek.value = data
+      schedAnchor.value = data.monday
+      if (data.today) schedToday.value = data.today
+    }
+
+
+
+    function shiftWeek(step) {
+      if (!schedAnchor.value) return
+      const d = new Date(schedAnchor.value + 'T00:00:00')
+      d.setDate(d.getDate() + step * 7)
+      loadWeek(toLocalDateString(d))
+    }
+    function gotoThisWeek() { loadWeek(schedToday.value) }
+
+    /** 计算一条日程在周视图里的位置（按时间绝对定位） */
+    function evStyle(item) {
+      const [h, m] = item.occ_start.split(':').map(Number)
+      const offsetMin = (h * 60 + m) - GRID_START_HOUR * 60
+      const top = Math.max(0, offsetMin / 60 * HOUR_PX)
+      return { top: top + 'px', height: evHeight(item) + 'px' }
+    }
+    function evHeight(item) {
+      const [sh, sm] = item.occ_start.split(':').map(Number)
+      const [eh, em] = item.occ_end.split(':').map(Number)
+      const minutes = Math.max(20, (eh * 60 + em) - (sh * 60 + sm))
+      return minutes / 60 * HOUR_PX
+    }
+
+    /** 解析结果逐条去问内核"这个时间行不行" —— 冲突摆出来，别等加完才发现 */
+    async function checkVerdicts() {
+      for (const p of schedPreview.value) {
+        if (!p.start) continue
+        const data = await postJSON('/api/schedule/check', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(p),
+        })
+        if (!data.error) p.verdict = data.verdict
+      }
+      schedPreview.value = [...schedPreview.value]
+    }
+
+    async function parseScheduleText() {
+      const text = schedText.value.trim()
+      if (!text || schedParsing.value) return
+      schedParsing.value = true
+      schedError.value = ''
+      try {
+        const data = await postJSON('/api/schedule/parse', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text }),
+        })
+        if (data.error) { schedError.value = data.error; return }
+        schedPreview.value = data.items.map(it => ({ ...it, picked: it.ok }))
+        schedText.value = ''
+        await checkVerdicts()
+      } finally {
+        schedParsing.value = false
+      }
+    }
+
+    /** 上传课表照片 → 后端识别出文字 → 走同一条解析路 */
+    async function uploadSchedulePhoto(file) {
+      if (!file) return
+      schedUploading.value = true
+      schedError.value = ''
+      // 后端没得选（只装了一个）时用那个；有得选就用用户挑的
+      const list = schedBackends.value.available || []
+      const backend = list.includes(schedBackend.value) ? schedBackend.value : list[0]
+      if (!backend) {
+        schedError.value = '没有可用的识别后端。'
+        schedUploading.value = false
+        return
+      }
+      const fd = new FormData()
+      fd.append('image', file)
+      fd.append('backend', backend)
+      try {
+        const data = await postJSON('/api/schedule/photo', { method: 'POST', body: fd })
+        if (data.error) {
+          // 把后端的"怎么开"一起显示出来，别只说一句"不可用"
+          schedError.value = data.error + (data.how_to && data.how_to[backend]
+            ? '  开启方式：' + data.how_to[backend] : '')
+          return
+        }
+        schedText.value = data.text || ''
+        if (data.note) schedError.value = ''
+        await parseScheduleText()
+      } finally {
+        schedUploading.value = false
+      }
+    }
+    function onSchedulePhoto(e) {
+      uploadSchedulePhoto(e.target.files[0])
+      e.target.value = ''
+    }
+
+    /** 后端选择器上的一句话说明 —— 把取舍讲清楚，别让用户盲选 */
+    function backendHint(name) {
+      if (name === 'vlm') return '看得懂版面，网格课表也能还原；图片会发到云端（约 1 分钟）'
+      if (name === 'ocr') return '离线、免费、不上传图片；但网格课表会串行（约 20 秒）'
+      return ''
+    }
+
+    function useAlternative(item, alt) {
+      item.start = alt.start
+      item.duration_min = Math.max(5, (new Date(alt.end) - new Date(alt.start)) / 60000)
+      // 改完立刻重算裁决，让用户看到"现在没问题了"
+      postJSON('/api/schedule/check', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(item),
+      }).then(data => {
+        if (!data.error) { item.verdict = data.verdict; schedPreview.value = [...schedPreview.value] }
+      })
+    }
+
+    async function addParsed() {
+      const items = schedPreview.value.filter(p => p.picked)
+      if (!items.length) return
+      const data = await postJSON('/api/schedule/add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items }),
+      })
+      if (data.error) { schedError.value = data.error; return }
+      schedPreview.value = []
+      // 加完跳回"这一周"，否则用户加了下周的日程但还停在原来那一周，会以为没生效
+      const first = data.added[0]
+      await loadWeek(first ? first.start.slice(0, 10) : schedToday.value)
+    }
+
+    async function delEvent(item) {
+      if (!confirm(`删除「${item.title}」？`)) return
+      const data = await postJSON('/api/schedule/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: item.id }),
+      })
+      if (data.error) { schedError.value = data.error; return }
+      await loadWeek(schedAnchor.value)
+    }
+
     /* ══════════ ④ Agent（harness 演示）══════════ */
     const agentInput = ref('')
     const agentRunning = ref(false)
@@ -348,6 +562,11 @@ createApp({
       albumResults, albumStats, albumLoading, albumProgress, albumError, minConf,
       albumRunId, saveState, saveError, saveAlbum,
       onAlbumPick, onAlbumDrop,
+      GRID_HOURS, HOUR_PX,
+      schedWeek, schedText, schedParsing, schedUploading, schedPreview, schedError,
+      schedBackends, schedBackend, backendHint, pickedCount, evStyle, evHeight,
+      shiftWeek, gotoThisWeek, parseScheduleText, onSchedulePhoto, useAlternative,
+      addParsed, delEvent,
       agentTools, agentSuggestions, agentInput, agentRunning, agentMessages, agentSteps,
       agentError, agentExamples, askExample, runAgent,
     }
