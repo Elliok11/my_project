@@ -18,6 +18,11 @@ runs/
 # ── 编辑器 ──
 .vscode/
 .idea/
+# vim/vi 的临时交换文件 —— 提交信息编辑到一半被打断就会留下它，
+# 而且它会直接落在 .git/ 里（实测踩到过 .git/.COMMIT_EDITMSG.swp）
+*.swp
+*.swo
+*~
 
 # ── 工具的输出结果（照片副本 + 报告），随时可重新生成 ──
 output/
@@ -45,6 +50,8 @@ web/static/vue.global.prod.js
 secrets.json
 data/.credentials*
 
-# ── 例外：README 里要展示的插图，需要提交到仓库 ──
-!docs/*.png
-!docs/*.jpg
+# 注意：上面的 *.jpg / *.png 是**全局忽略**，所以以后想提交任何图片，
+# 都得显式开例外（!路径）或者 git add -f 强制加 ——
+# 否则会遇到"我明明 git add 了，怎么没上去"。
+# 这里曾经有 !docs/*.png 和 !docs/*.jpg 两条例外，是给分类模型的结果图开的；
+# 那批图已按作者决定删除、docs/ 目录也不存在了，例外永远匹配不到，故移除。
