@@ -26,7 +26,6 @@ from .model import (
     DEFAULT_TRAVEL,
     WEEKDAY_NAMES,
     Event,
-    make_id,
 )
 
 

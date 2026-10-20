@@ -67,6 +67,15 @@ class Store:
         self._append({"op": "add", **event.to_dict()})
         return event
 
+    def update(self, event: Event) -> Event | None:
+        """用同一个 id 更新事件，保留日程在库中的身份。"""
+        if event.id not in self._events:
+            return None
+        event.validate()
+        self._events[event.id] = event
+        self._append({"op": "add", **event.to_dict()})
+        return event
+
     def remove(self, event_id: str) -> bool:
         if event_id not in self._events:
             return False
