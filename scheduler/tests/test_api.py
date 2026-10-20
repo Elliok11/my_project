@@ -192,26 +192,89 @@ def test_ics_空日程时明确拒绝(client):
 
 
 @_with_client
-def test_后端清单接口(client):
-    data = client.get("/api/schedule/backends").get_json()
-    assert "available" in data and "how_to" in data
-    # 没装 OCR / 没配多模态时不报错，只是列表为空 —— 界面据此禁用按钮
-    assert isinstance(data["available"], list)
+def test_编辑接口_改完落库(client):
+    client.post("/api/schedule/add", json={"items": [{
+        "title": "高数", "start": "2026-03-05T10:00", "duration_min": 60,
+    }]})
+    item = client.get("/api/schedule/week?date=2026-03-05").get_json()["days"][3]["items"][0]
+    item["title"] = "高等数学"
+    item["duration_min"] = 90
+
+    resp = client.post("/api/schedule/edit", json=item)
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    data = resp.get_json()
+    assert data["title"] == "高等数学"
+    assert data["duration_min"] == 90
+
+    week = client.get("/api/schedule/week?date=2026-03-05").get_json()
+    events = week["days"][3]["items"]
+    assert events[0]["title"] == "高等数学"
+    assert events[0]["duration_min"] == 90
 
 
 @_with_client
-def test_照片接口_后端不可用时明确说清楚_而不是假装成功(client):
-    import io
+def test_编辑重复日程_只改这一周的这一次不会把系列起点挪走(_scratch):
+    # 【这个测试本身踩过一个坑】参数不能叫 client：模块最外层已经有一个叫 client 的函数，
+    # 参数把它盖掉之后，万一这个测试执行失败，报错信息里 client 会被当成那个函数，
+    # 然后往上再抛一层别的异常，真正的原因就被埋掉了。
+    _scratch.post("/api/schedule/add", json={"items": [{
+        "title": "社团例会", "start": "2026-03-02T19:00", "duration_min": 90,
+        "weekdays": [1], "until": "2026-06-29", "location": "西区活动室",
+    }]})
+    items = _scratch.get("/api/schedule/week?date=2026-03-09").get_json()["days"][0]["items"]
+    assert len(items) == 1, items
+    item = items[0]
 
-    resp = client.post("/api/schedule/photo",
-                       data={"image": (io.BytesIO(b"not-an-image"), "kebiao.jpg"),
-                             "backend": "ocr"},
-                       content_type="multipart/form-data")
-    # 装了 OCR 的话这里可能是 200；没装则必须是 501 + 怎么装的说明
-    if resp.status_code == 501:
-        data = resp.get_json()
-        assert "how_to" in data, "不可用时必须告诉用户怎么开启，而不是只报一句错"
-        assert "ocr" in data["how_to"]
+    # 前端编辑面板打开的是"这一周的那一次"（2026-03-09），用户只改了地点；
+    # 提交时前端会把 start 还原成系列起点。
+    payload = {**item, "location": "东区 A201"}
+    resp = _scratch.post("/api/schedule/edit", json=payload)
+    assert resp.status_code == 200, resp.get_json()
+    assert resp.get_json()["start"].startswith("2026-03-02"), resp.get_json()["start"]
+
+    # 这一周、上一周、下一周的那几次都还在，地点已经改了
+    for anchor in ("2026-03-02", "2026-03-09", "2026-03-16"):
+        week = _scratch.get(f"/api/schedule/week?date={anchor}").get_json()
+        assert week["total"] == 1, f"{anchor} 那一周的那一次不见了"
+        assert week["days"][0]["items"][0]["location"] == "东区 A201"
+
+
+@_with_client
+def test_编辑重复日程_把日期改到该系列里的另一天也能对上(_scratch):
+    _scratch.post("/api/schedule/add", json={"items": [{
+        "title": "体育", "start": "2026-03-02T08:00", "duration_min": 100,
+        "weekdays": [1], "until": "2026-06-29",
+    }]})
+    item = _scratch.get("/api/schedule/week?date=2026-03-02").get_json()["days"][0]["items"][0]
+    # 提交的日期是 03-09（同样是周一），后端应该把系列起点保持为 03-02
+    resp = _scratch.post("/api/schedule/edit", json={**item, "start": "2026-03-09T08:00",
+                                                     "duration_min": 120})
+    assert resp.status_code == 200, resp.get_json()
+    assert resp.get_json()["start"].startswith("2026-03-02"), resp.get_json()["start"]
+    assert resp.get_json()["duration_min"] == 120
+    # 两周各一次，起点没被挪到 03-09（否则 03-02 那一次会消失）
+    assert _scratch.get("/api/schedule/week?date=2026-03-02").get_json()["total"] == 1
+
+
+@_with_client
+def test_编辑接口_id不存在返回404(client):
+    resp = client.post("/api/schedule/edit", json={
+        "id": "nope", "title": "x", "start": "2026-03-05T10:00",
+    })
+    assert resp.status_code == 404
+
+
+@_with_client
+def test_编辑接口_非法时间返回400(client):
+    client.post("/api/schedule/add", json={"items": [{
+        "title": "高数", "start": "2026-03-05T10:00", "duration_min": 60,
+    }]})
+    event_id = client.get("/api/schedule/week?date=2026-03-05").get_json()["days"][3]["items"][0]["id"]
+    resp = client.post("/api/schedule/edit", json={
+        "id": event_id, "title": "高数", "start": "不是时间",
+    })
+    assert resp.status_code == 400
+    assert "不合法" in resp.get_json()["error"]
 
 
 # ═══════════════════════════ 手动跑 ═══════════════════════════

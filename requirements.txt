@@ -1,12 +1,4 @@
-# 先装 CPU 版 PyTorch（约 200 MB），避免默认下载 2.5 GB 的 CUDA 版本：
-# py -3.11 -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+# 只需要两个依赖：Flask 起网页，requests 调本地 Ollama。
+# 图像识别 / YOLO / torch 已经移除 —— 不用再装 200 MB+ 的推理栈。
 requests>=2.31
-ultralytics>=8.4
 flask>=3.0
-
-# ── 可选：课表照片识别（本地 OCR，纯 CPU，离线，不上传图片）──
-# 只有要用「日程表」页的拍照识别才需要装，不装不影响其它功能。
-# 记得走国内源 —— 默认源拉 onnxruntime 那一百多 MB 会非常慢：
-#   python -m pip install rapidocr-onnxruntime -i https://pypi.tuna.tsinghua.edu.cn/simple/
-rapidocr-onnxruntime>=1.4.4
-
