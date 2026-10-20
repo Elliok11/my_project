@@ -34,9 +34,6 @@ output/
 # 体积大且含个人文件信息
 data/
 
-# ── Web 界面运行时上传的临时文件 ──
-web/uploads/
-
 # ── 前端库：保持仓库体积小，不进仓库，用 README 里的命令自行下载 ──
 web/static/vue.global.prod.js
 
