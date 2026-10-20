@@ -149,7 +149,7 @@ py -3.11 scheduler\tests\test_api.py
 
 这些功能在 2026-10-20 被整体移除：它们依赖 200 MB+ 的 torch/ultralytics，而且日常并不用。
 完整旧代码不再放在仓库历史里（历史已清扫，避免每次 clone 都拖着用不上的模块），
-需要时看旁边的 `my_project_hist_2026-10` 归档仓库；当时的踩坑记录仍保留在 `logs/2026-10-*.md`。
+需要时看分支 `archive/pre-2026-10-cleanup`（`git show archive/pre-2026-10-cleanup:src/agent.py`）；当时的踩坑记录仍保留在 `logs/2026-10-*.md`。
 
 ---
 
