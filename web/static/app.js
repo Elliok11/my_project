@@ -130,6 +130,8 @@ createApp({
     const schedSaving = ref(false)
     const schedNotice = ref('')          // 保存成功但有话说（比如冲突）
     const schedEditingSeriesStart = ref('')   // 编辑中的重复日程：系列真实起点
+    const schedEditScope = ref('single')      // single | series
+    const schedEditOccurrence = ref('')       // 点开的是哪一天
     // 用本地时区拿"今天"。不能写成 new Date().toISOString().slice(0,10) ——
     // 那在东八区会在**每天早上 8 点前**返回前一天（详见 toLocalDateString 的注释）。
     const schedToday = ref(toLocalDateString(new Date()))
@@ -244,26 +246,17 @@ createApp({
     }
 
     /**
-     * 点开编辑面板。
+     * 点开编辑面板。dayDate 是这次点中的那一天的日期（由模板传入）。
      *
-     * 【为什么重复日程要把开始时间换成"这一周的那一天"】
-     *   表单里显示的是 schedEditing.start，而后端按这个日期判断星期几是否和 weekdays 对得上。
-     *   如果拿系列原始起点（比如 9 月的某个周一），在 10 月这一周点编辑，
-     *   用户既看不出来改的是哪一次，拖动日期也大概率跟 weekdays 冲突、直接 400。
-     *   所以把日期换成本周这一次的日期（时刻不变），星期几自然落在 weekdays 里。
+     * 重复日程：表单显示"这一次"的日期，默认只改这一次；
+     * 系列起点单独记着，选"整个系列"时还原回去，避免把前面几周吃掉。
      */
-    function editEvent(item) {
-      let start = item.start
-      if (item.recurrence === 'weekly' && item.occ_start) {
-        const day = (schedWeek.value && schedWeek.value.days || [])
-          .find(d => d.items && d.items.some(it => it.id === item.id && it.occ_start === item.occ_start))
-        if (day) start = day.date + 'T' + item.occ_start
-      }
-      // 【表单里的 start 是"这一次的日期"，不能直接当系列起点提交】
-      //   直接提交的话，后端会以为系列要从这一天开始重复，
-      //   前面几周那几次就消失了。所以把系列起点单独记住，保存时还原回去。
-      schedEditing.value = { ...item, start }
+    function editEvent(item, dayDate) {
+      const weekly = item.recurrence === 'weekly'
+      schedEditing.value = { ...item, start: weekly ? dayDate + 'T' + item.occ_start : item.start }
       schedEditingSeriesStart.value = item.start
+      schedEditOccurrence.value = weekly ? dayDate : ''
+      schedEditScope.value = 'single'
       schedNotice.value = ''
       schedError.value = ''
     }
@@ -274,7 +267,15 @@ createApp({
       schedSaving.value = true
       schedError.value = ''
 
-      const payload = { ...draft, start: schedEditingSeriesStart.value || draft.start }
+      const single = draft.recurrence === 'weekly' && schedEditScope.value === 'single'
+      const payload = { ...draft }
+      if (single) {
+        payload.scope = 'single'
+        payload.occurrence = schedEditOccurrence.value
+      } else {
+        payload.scope = 'series'
+        payload.start = schedEditingSeriesStart.value || draft.start
+      }
       const data = await postJSON('/api/schedule/edit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -285,9 +286,10 @@ createApp({
       schedEditing.value = null
       await loadWeek(schedAnchor.value)
       // 冲突不阻止保存（和"添加"保持一致）：存进去，再把问题摆出来
+      const scope = single ? '只改了这一次' : '已保存'
       schedNotice.value = data.issues && data.issues.length
-        ? '已保存，但和已有日程有冲突：' + data.issues.join('；')
-        : ''
+        ? `${scope}，但和已有日程有冲突：` + data.issues.join('；')
+        : scope
     }
 
     return {
@@ -295,7 +297,7 @@ createApp({
       messages, chatInput, sending, sendChat,
       GRID_HOURS, HOUR_PX,
       schedWeek, schedText, schedParsing, schedPreview, schedError,
-      schedEditing, schedSaving, schedNotice, pickedCount, evStyle, evHeight,
+      schedEditing, schedSaving, schedNotice, schedEditScope, pickedCount, evStyle, evHeight,
       shiftWeek, gotoThisWeek, parseScheduleText, useAlternative,
       addParsed, delEvent, editEvent, saveEditedEvent,
     }

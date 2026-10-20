@@ -155,6 +155,7 @@ def _event_json(event) -> dict:
         "recurrence": event.recurrence,
         "weekdays": list(event.weekdays),
         "until": event.until.isoformat() if event.until else "",
+        "exdates": [d.isoformat() for d in event.exdates],
         "prep_min": event.prep_min,
         "consequence": event.consequence,
         "source": event.source,
@@ -289,14 +290,10 @@ def api_schedule_delete():
 
 @app.post("/api/schedule/edit")
 def api_schedule_edit():
-    """编辑已经落库的日程，并在保存前重新检查冲突。
+    """编辑日程。scope=single 只改这一次；默认 scope=series 改整个系列。
 
-    重复日程的语义（这里最容易理解错，所以写清楚）：
-      - 库里只有**一条**事件记录，`weekdays` 定星期几、`until` 定什么时候结束，
-        `start` 定"从哪天开始重复"。所以编辑改的永远是**整个系列**，没有"只改这一次"。
-      - 表单里显示的日期，如果是这次重复里本来就有的某一天，
-        就不再拿它当新的系列起点 —— 否则改个标题都会把系列起点挪走，
-        导致用户本来有的那几次突然消失。
+    重复日程在库里只有一条记录，没改过的那几次由 weekdays/until 展开；
+    要单独改某一次，就把它从系列里摘出去（exdates），另存一条一次性事件。
     """
     from scheduler.conflict import Rules, check_candidate, occurrences_of
 
@@ -309,6 +306,10 @@ def api_schedule_edit():
     current = store.get(event_id)
     if not current:
         return jsonify({"error": "没找到这条日程（可能已经被删了）"}), 404
+
+    if str(data.get("scope") or "series") == "single" and current.recurrence == "weekly":
+        return _edit_one_occurrence(store, current, data)
+
     try:
         event = _event_from_payload({**data, "id": event_id})
     except Exception as exc:                                    # noqa: BLE001
@@ -324,6 +325,42 @@ def api_schedule_edit():
     store.update(event)
     return jsonify({**_event_json(event), "ok": verdict.ok,
                     "issues": [i.message for i in verdict.issues]})
+
+
+def _edit_one_occurrence(store, series, data):
+    """只改系列里的这一次：系列加一条 exdate，另存一条一次性事件。"""
+    from datetime import date as _date
+
+    from scheduler.conflict import Rules, check_candidate, occurrences_of
+
+    raw = str(data.get("occurrence") or "").strip()
+    try:
+        day = _date.fromisoformat(raw)
+    except ValueError:
+        return jsonify({"error": "缺少这次编辑对应的日期（occurrence）"}), 400
+    if not any(occ.day == day for occ in occurrences_of(series, day, day)):
+        return jsonify({"error": f"{day} 不在「{series.title}」这个系列里。"}), 400
+
+    payload = {**data, "id": "", "weekdays": [], "until": "", "exdates": []}
+    try:
+        event = _event_from_payload(payload)
+    except Exception as exc:                                    # noqa: BLE001
+        return jsonify({"error": f"这条日程不合法：{exc}"}), 400
+    event.id = f"{series.id}-{day.isoformat()}"
+
+    series.exdates = sorted(set(series.exdates) | {day})
+    try:
+        series.validate()
+    except Exception as exc:                                    # noqa: BLE001
+        return jsonify({"error": f"这条日程不合法：{exc}"}), 400
+
+    others = [item for item in store.all() if item.id != series.id]
+    verdict = check_candidate(others + [series], event, Rules())
+    store.update(series)
+    store.add(event)
+    return jsonify({**_event_json(event), "ok": verdict.ok,
+                    "issues": [i.message for i in verdict.issues],
+                    "series_id": series.id})
 
 
 @app.get("/api/schedule/ics")
@@ -362,6 +399,7 @@ def _event_from_payload(data: dict):
     if isinstance(weekdays, str):
         weekdays = [int(x) for x in weekdays.replace("，", ",").split(",") if x.strip()]
     until = str(data.get("until") or "").strip() or None
+    exdates = data.get("exdates") or []
     recurrence = "weekly" if weekdays else "one_off"
     if recurrence == "weekly" and not until:
         # 重复事件必须有个终点，否则会无限重复。没给就默认一学期（20 周）。
@@ -379,6 +417,7 @@ def _event_from_payload(data: dict):
         recurrence=recurrence,
         weekdays=weekdays,
         until=until,
+        exdates=exdates,
         source=str(data.get("source") or "manual"),
         note=str(data.get("note") or ""),
     )

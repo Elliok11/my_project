@@ -108,6 +108,8 @@ def occurrences_of(event: Event, start_day: date, end_day: date) -> list[Occurre
     for day in days:
         if day < start_day or day > end_day:
             continue
+        if event.recurrence == "weekly" and day in event.exdates:
+            continue
         start = datetime.combine(day, clock)
         end = start + timedelta(minutes=event.duration_min)
         result.append(
@@ -500,6 +502,9 @@ def make_event(title: str, start: str, duration_min: int = 60, event_id: str = "
         payload["until"] = _parse_date(payload["until"], "until")
     else:
         payload["until"] = None
+    if "exdates" in payload:
+        from .model import _parse_date
+        payload["exdates"] = [_parse_date(d, "exdates") for d in payload["exdates"] or []]
     event = Event(**payload)
     event.validate()
     event.ensure_id()

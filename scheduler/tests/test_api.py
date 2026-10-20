@@ -257,6 +257,40 @@ def test_编辑重复日程_把日期改到该系列里的另一天也能对上(
 
 
 @_with_client
+def test_只改这一次_其余周不受影响且导出带_EXDATE(_scratch):
+    _scratch.post("/api/schedule/add", json={"items": [{
+        "title": "社团例会", "start": "2026-10-19T19:00", "duration_min": 90,
+        "weekdays": [1], "until": "2027-01-18", "location": "西区活动室",
+    }]})
+    item = _scratch.get("/api/schedule/week?date=2026-11-02").get_json()["days"][0]["items"][0]
+    payload = {**item, "title": "特别例会", "start": "2026-11-02T20:00",
+               "duration_min": 60, "scope": "single", "occurrence": "2026-11-02"}
+    resp = _scratch.post("/api/schedule/edit", json=payload)
+    assert resp.status_code == 200, resp.get_json()
+
+    def titles(anchor):
+        days = _scratch.get(f"/api/schedule/week?date={anchor}").get_json()["days"]
+        return [(i["title"], i["occ_start"]) for d in days for i in d["items"]]
+
+    assert titles("2026-11-02") == [("特别例会", "20:00")]
+    assert titles("2026-10-19") == [("社团例会", "19:00")]
+    assert titles("2026-11-09") == [("社团例会", "19:00")]
+    assert "EXDATE:20261102T190000" in _scratch.get("/api/schedule/ics").get_data(as_text=True)
+
+    # 之后改整个系列：例外日期要保留，别把 11-02 那次又变回来
+    series_item = _scratch.get("/api/schedule/week?date=2026-10-19").get_json()["days"][0]["items"][0]
+    resp = _scratch.post("/api/schedule/edit",
+                         json={**series_item, "title": "例会", "scope": "series"})
+    assert resp.status_code == 200, resp.get_json()
+    assert titles("2026-11-02") == [("特别例会", "20:00")]
+    assert titles("2026-11-09") == [("例会", "19:00")]
+
+    # 日期不在这个系列里 → 明确拒绝
+    bad = {**item, "scope": "single", "occurrence": "2026-11-03"}
+    assert _scratch.post("/api/schedule/edit", json=bad).status_code == 400
+
+
+@_with_client
 def test_编辑接口_id不存在返回404(client):
     resp = client.post("/api/schedule/edit", json={
         "id": "nope", "title": "x", "start": "2026-03-05T10:00",

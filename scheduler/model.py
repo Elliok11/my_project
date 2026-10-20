@@ -97,6 +97,7 @@ class Event:
     recurrence: str = "one_off"                 # one_off | weekly
     weekdays: list[int] = field(default_factory=list)   # 仅 weekly 用，1=周一…7=周日
     until: date | None = None                    # 仅 weekly 用：最后一次有效日期
+    exdates: list[date] = field(default_factory=list)   # 仅 weekly：被单独改掉/跳过的日期
     # 前置准备时间：面试前要留 1 小时准备。它会让"事件之前"的一段时间变忙。
     prep_min: int = 0
     # 后果等级：high 的事情冲突了必须解决，low 的可以让步（用于替代方案打分）
@@ -125,6 +126,8 @@ class Event:
             raise ValidationError(f"consequence 只能是 low/normal/high，当前是 {self.consequence!r}。")
         if self.prep_min < 0:
             raise ValidationError("prep_min 不能是负数。")
+        if self.exdates and self.recurrence != "weekly":
+            raise ValidationError("exdates（跳过某些日期）只对 weekly 事件有意义。")
 
         if self.recurrence == "weekly":
             if not self.weekdays:
@@ -146,6 +149,15 @@ class Event:
                     f"起始日期 {self.start.date()} 是{WEEKDAY_NAMES[self.start.isoweekday()]}，"
                     f"不在 weekdays={self.weekdays} 里。请确认 weekdays 或起始日期。"
                 )
+            for day in self.exdates:
+                if isinstance(day, datetime) or not isinstance(day, date):
+                    raise ValidationError(f"exdates 里必须是 date，当前是 {day!r}。")
+                if not self.start.date() <= day <= self.until:
+                    raise ValidationError(
+                        f"exdates 里的 {day} 不在 {self.start.date()} ~ {self.until} 之间。"
+                    )
+                if day.isoweekday() not in self.weekdays:
+                    raise ValidationError(f"exdates 里的 {day} 不是 weekdays 里的星期几。")
         elif self.recurrence != "one_off":
             raise ValidationError(f"recurrence 只能是 one_off 或 weekly，当前是 {self.recurrence!r}。")
 
@@ -183,6 +195,7 @@ class Event:
         data = asdict(self)
         data["start"] = self.start.strftime("%Y-%m-%dT%H:%M")
         data["until"] = self.until.isoformat() if self.until else None
+        data["exdates"] = [d.isoformat() for d in self.exdates]
         return data
 
     @classmethod
@@ -194,6 +207,7 @@ class Event:
             payload["until"] = _parse_date(payload["until"], "until")
         else:
             payload["until"] = None
+        payload["exdates"] = [_parse_date(d, "exdates") for d in payload.get("exdates") or []]
         known = {f for f in cls.__dataclass_fields__}
         unknown = set(payload) - known
         if unknown:

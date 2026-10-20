@@ -159,9 +159,12 @@
 
       <div v-if="schedEditing" class="edit-schedule">
         <strong>编辑日程</strong>
+        <div v-if="schedEditing.recurrence === 'weekly'" class="edit-scope">
+          <label><input type="radio" value="single" v-model="schedEditScope"> 只改这一次</label>
+          <label><input type="radio" value="series" v-model="schedEditScope"> 整个系列</label>
+        </div>
         <p v-if="schedEditing.recurrence === 'weekly'" class="edit-hint">
-          这是一个<strong>每周重复</strong>的日程 —— 改动会应用到整个系列，不是只改这一次；
-          日期显示的是<strong>这一周的那一次</strong>，不改变整个系列的起点。
+          {{ schedEditScope === 'single' ? '其余周不变，只把这一天摘出来单独改。' : '所有周一起改。' }}
         </p>
         <div class="preview-fields">
           <input v-model="schedEditing.title" class="f-title" placeholder="事件名">
@@ -201,7 +204,7 @@
                 <span class="ev-time">{{ it.occ_start }}</span>
                 <span class="ev-title">{{ it.title }}</span>
                 <span v-if="it.location" class="ev-loc">{{ it.location }}</span>
-                <button class="ev-edit" @click.stop="editEvent(it)" title="编辑">✎</button>
+                <button class="ev-edit" @click.stop="editEvent(it, d.date)" title="编辑">✎</button>
                 <button class="ev-del" @click.stop="delEvent(it)" title="删除">×</button>
               </div>
             </div>

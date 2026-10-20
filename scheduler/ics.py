@@ -165,6 +165,9 @@ def event_to_vevent(event: Event, now: datetime | None = None) -> list[str]:
         # UNTIL 用当天 23:59:59 保证这一天也被包含进去
         until = event.end_date().strftime("%Y%m%d") + "T235959"
         lines.append(f"RRULE:FREQ=WEEKLY;BYDAY={days};UNTIL={until}")
+        if event.exdates:
+            stamps = ",".join(f"{d:%Y%m%d}T{event.start:%H%M%S}" for d in sorted(set(event.exdates)))
+            lines.append(f"EXDATE:{stamps}")
     else:
         lines.append(f"DTSTART:{_stamp(event.start)}")
         lines.append(f"DTEND:{_stamp(event.end)}")

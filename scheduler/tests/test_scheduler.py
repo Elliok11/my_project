@@ -105,6 +105,13 @@ def test_每周重复_只在_until_之前展开():
     assert days == [date(2026, 3, 4), date(2026, 3, 11), date(2026, 3, 18), date(2026, 3, 25)]
 
 
+def test_exdates_把指定的一次从系列里跳过():
+    event = make_event("社团例会", _at(WED, "19:00"), 90, recurrence="weekly",
+                       weekdays=[3], until="2026-03-25", exdates=["2026-03-11"])
+    days = [o.day for o in occurrences_of(event, MONDAY, MONDAY + timedelta(days=30))]
+    assert days == [date(2026, 3, 4), date(2026, 3, 18), date(2026, 3, 25)]
+
+
 def test_多星期的重复规则():
     # 周一 10:00 的"体育"，同时每周四也排 —— 展开后应该周一周四各一次
     event = make_event("体育", _at(MONDAY, "10:00"), 60, recurrence="weekly",
