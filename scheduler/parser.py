@@ -29,7 +29,7 @@ import re
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, timedelta
 
-from .model import WEEKDAY_NAMES, Event, ValidationError, make_id
+from .model import WEEKDAY_NAMES, Event, ValidationError
 
 # 中文数字，用于"晚上七点""三点半"
 CN_DIGITS = {"零": 0, "一": 1, "二": 2, "两": 2, "三": 3, "四": 4,
@@ -240,11 +240,6 @@ WEEKDAY_MAP = {"一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6, "日"
 # 这类词一出现，说明这是一件"每周都发生"的事
 RECURRING_HINTS = ("每周", "每周的", "例会", "每周一", "每周二", "每周三", "每周四",
                    "每周五", "每周六", "每周日", "固定", "每次")
-# 标题里要剥掉的尾巴（时间/地点已经单独抽出去了）
-TITLE_TAIL = re.compile(r"^\s*")   # 已废弃：标题现在靠"挖洞"生成，不再做后缀裁剪
-TITLE_TAIL = re.compile(
-    r"(?:，|,)?\s*(?:大概|大约|约|差不多)?\s*\d{1,3}\s*(?:个?小时|分钟|个?钟头|h|min).*$"
-)
 
 
 def resolve_date(expr: dict, today: date) -> date | None:
@@ -732,15 +727,34 @@ EXTRACT_PROMPT = """你是一个信息抽取器。从下面这句话里抽出日
 你的输出："""
 
 
+def _ask_ollama(prompt: str, temperature: float = 0.2) -> str:
+    """可选的本地模型调用。只有显式调用 parse_with_llm 且没传 ask 时才会走到。"""
+    import urllib.request
+
+    payload = json.dumps({
+        "model": "qwen2.5:1.5b",
+        "prompt": prompt,
+        "stream": False,
+        "options": {"temperature": temperature},
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        "http://127.0.0.1:11434/api/generate",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(req, timeout=300) as resp:
+        return json.loads(resp.read().decode("utf-8")).get("response", "")
+
+
 def parse_with_llm(text: str, today: date | None = None, ask=None) -> list[ParsedEvent]:
     """让模型抽取"零件"，再由代码算日期。
 
-    参数 ask 是一个 callable(prompt) -> str。默认用 agent 的 ask_llm。
+    参数 ask 是一个 callable(prompt) -> str；不传就走本地 Ollama。
     把 ask 做成参数是为了能测试（不用真的起一个 Ollama）。
     """
     today = today or date.today()
     if ask is None:
-        from agent import ask_llm as ask      # 延迟导入：这个模块不该强依赖 Ollama
+        ask = _ask_ollama
 
     rules_result = parse_text(text, today)
     raw = ask(EXTRACT_PROMPT.format(text=text.strip()))
