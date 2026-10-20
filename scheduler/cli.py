@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import argparse
 import sys
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 
 # ── Windows 控制台默认是 GBK，输出中文/emoji 会直接抛 UnicodeEncodeError。
 #    在 import 阶段就把它顶成 UTF-8，避免"代码没错但一跑就崩"。
@@ -29,10 +29,9 @@ for _stream in (sys.stdout, sys.stderr):
         pass
 
 from . import conflict, ics
-from .conflict import Rules, check_candidate, detect, expand, find_gaps, make_event, occurrences_of
+from .conflict import Rules, check_candidate, detect, expand, find_gaps, make_event
 from .model import (
     CATEGORIES,
-    SOURCES,
     WEEKDAY_NAMES,
     Event,
     ValidationError,
